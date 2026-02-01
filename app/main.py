@@ -11,3 +11,4 @@ app.include_router(health_router, prefix="/api")
 from app.routes.dbtest import router as dbtest_router
 app.include_router(dbtest_router, prefix="/api")
 from app.routes.dbtest import router as dbtest_router
+app.include_router(dbtest_router, prefix="/api")
