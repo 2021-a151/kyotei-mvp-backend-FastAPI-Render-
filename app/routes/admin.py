@@ -15,8 +15,9 @@ def _require_admin(api_key: str | None):
     if not api_key or api_key != expected:
         raise HTTPException(status_code=403, detail="Forbidden")
 
-@router.post("/admin/ingest")
+@router.get("/admin/ingest")
 def ingest(date: str, api_key: str | None = None, db: Session = Depends(get_db)):
+
     """
     ダミー版 ingest：
     - races / entries / previews / decisions / picks に1件ずつUPSERT
