@@ -12,3 +12,6 @@ from app.routes.dbtest import router as dbtest_router
 app.include_router(dbtest_router, prefix="/api")
 from app.routes.dbtest import router as dbtest_router
 app.include_router(dbtest_router, prefix="/api")
+from app.routes.admin import router as admin_router
+...
+app.include_router(admin_router, prefix="/api")
