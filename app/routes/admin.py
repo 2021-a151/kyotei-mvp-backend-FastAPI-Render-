@@ -49,21 +49,21 @@ def ingest(date: str, api_key: str | None = None, db: Session = Depends(get_db))
         """), {"race_id": race_id, "lane": lane, "racer_id": f"R{lane:02d}", "racer_name": f"ダミー選手{lane}", "now": now})
 
     # previews UPSERT（展示/ST/モーター ダミー）
-    db.execute(text("""
-      insert into public.previews (race_id, show_time, show_st, motor2, fetched_at)
-      values (:race_id, :show_time::jsonb, :show_st::jsonb, :motor2::jsonb, :now)
-      on conflict (race_id) do update set
-        show_time = excluded.show_time,
-        show_st = excluded.show_st,
-        motor2 = excluded.motor2,
-        fetched_at = excluded.fetched_at
-    """), {
-        "race_id": race_id,
-        "show_time": '[6.72,6.75,6.78,6.80,6.77,6.74]',
-        "show_st":   '[0.12,0.14,0.16,0.13,0.15,0.11]',
-        "motor2":    '[38.1,42.3,27.5,31.0,33.2,29.9]',
-        "now": now
-    })
+db.execute(text("""
+  insert into public.previews (race_id, show_time, show_st, motor2, fetched_at)
+  values (:race_id, :show_time, :show_st, :motor2, :now)
+  on conflict (race_id) do update set
+    show_time = excluded.show_time,
+    show_st = excluded.show_st,
+    motor2 = excluded.motor2,
+    fetched_at = excluded.fetched_at
+"""), {
+    "race_id": race_id,
+    "show_time": [6.72, 6.75, 6.78, 6.80, 6.77, 6.74],
+    "show_st":   [0.12, 0.14, 0.16, 0.13, 0.15, 0.11],
+    "motor2":    [38.1, 42.3, 27.5, 31.0, 33.2, 29.9],
+    "now": now
+})
 
     # decisions UPSERT（GOダミー）
     db.execute(text("""
