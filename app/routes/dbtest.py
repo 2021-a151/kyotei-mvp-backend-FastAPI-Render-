@@ -9,3 +9,4 @@ router = APIRouter()
 def dbtest(db: Session = Depends(get_db)):
     v = db.execute(text("select 1")).scalar()
     return {"ok": True, "select1": v}
+
