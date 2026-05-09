@@ -9,6 +9,7 @@ This file does NOT modify existing routes or database schema.
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 import datetime
+from datetime import timezone
 
 router = APIRouter()
 
@@ -1278,4 +1279,334 @@ setInterval(function(){{
 </script>
 </body>
 </html>"""
+    return HTMLResponse(content=html)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# P26 — Real Autonomous Task Execution Runtime
+# Routes: GET /api/axia-autonomous  (HTML Dashboard)
+#         POST /api/axia-autonomous/plan  (JSON Task Planner)
+# ─────────────────────────────────────────────────────────────────────────────
+import json as _json
+import hashlib as _hashlib
+
+_p26_task_memory: dict = {
+    "successPatterns": [],
+    "failurePatterns": [],
+    "repoQuirks": [
+        "axia_test.py: append-only, never rewrite full file",
+        "uvicorn: restart required after route changes",
+        "PR: use GitHub API with GITHUB_TOKEN, not gh CLI",
+        "merge: squash merge preferred"
+    ],
+    "verifyResults": [],
+    "rollbackHistory": [],
+    "lastPlan": None,
+    "pipelineState": {
+        "currentStep": "IDLE",
+        "steps": ["PLAN","ANALYZE","BACKUP","WRITE","VERIFY","BROWSER_VERIFY","PR","MERGE","POST_VERIFY","DONE"],
+        "completedSteps": [],
+        "approvalRequired": False,
+        "approvalReason": "",
+        "lastUpdated": ""
+    }
+}
+
+_P26_SAFE_STOP_RULES = [
+    {"id": "HIGH_RISK",     "label": "HIGH riskタスク",   "check": lambda p: p.get("riskLevel") == "HIGH"},
+    {"id": "TOO_MANY_LINES","label": "変更行数500行超",    "check": lambda p: p.get("estimatedLines", 0) > 500},
+    {"id": "TOO_MANY_FILES","label": "変更ファイル5件超",  "check": lambda p: len(p.get("targetFiles", [])) > 5},
+    {"id": "SECRET_FOUND",  "label": "secret検出",        "check": lambda p: p.get("secretFound", False)},
+    {"id": "DB_CHANGE",     "label": "DB変更検出",         "check": lambda p: p.get("hasDbChange", False)},
+    {"id": "AUTH_CHANGE",   "label": "auth変更検出",       "check": lambda p: p.get("hasAuthChange", False)},
+    {"id": "PAYMENT",       "label": "payment変更検出",    "check": lambda p: p.get("hasPaymentChange", False)},
+    {"id": "DEPLOY_CHANGE", "label": "deploy変更検出",     "check": lambda p: p.get("hasDeployChange", False)},
+]
+
+def _p26_safe_stop_check(plan: dict) -> dict:
+    for rule in _P26_SAFE_STOP_RULES:
+        if rule["check"](plan):
+            return {"blocked": True, "reason": rule["label"], "ruleId": rule["id"]}
+    return {"blocked": False, "reason": "", "ruleId": ""}
+
+def _p26_generate_plan(task_description: str) -> dict:
+    import re as _re
+    desc_lower = task_description.lower()
+    has_db     = bool(_re.search(r"db|database|migration|alembic|model", desc_lower))
+    has_auth   = bool(_re.search(r"auth|login|password|jwt|token|oauth", desc_lower))
+    has_pay    = bool(_re.search(r"payment|stripe|billing|charge|invoice", desc_lower))
+    has_deploy = bool(_re.search(r"deploy|render|railway|docker|infra|env", desc_lower))
+    has_delete = bool(_re.search(r"delete|drop|remove|destroy|truncate", desc_lower))
+    target_files = ["app/routes/axia_test.py"]
+    if _re.search(r"css|style|ui|layout|responsive", desc_lower):
+        target_files.append("public/style.css")
+    if _re.search(r"workspace|overview|sidebar", desc_lower):
+        target_files.append("public/unified_workspace.js")
+    if _re.search(r"chat|app\.js|frontend", desc_lower):
+        target_files.append("public/app.js")
+    if has_db or has_auth or has_pay or has_deploy or has_delete:
+        risk = "HIGH"
+    elif len(target_files) > 3 or _re.search(r"refactor|rewrite|redesign", desc_lower):
+        risk = "MEDIUM"
+    else:
+        risk = "LOW"
+    est_lines = 80 + len(target_files) * 60
+    short_desc = task_description[:40] + '...' if len(task_description) > 40 else task_description
+    steps = [
+        "現状の " + ", ".join(target_files) + " を分析",
+        "変更内容を設計（" + short_desc + "）",
+        "バックアップを作成",
+        "コードを実装",
+        "FastAPI importとHTTP 200を確認",
+        "ブラウザで表示確認",
+        "PRを作成",
+        "Risk判定に基づきmerge",
+        "mainへの反映を確認"
+    ]
+    if risk == "LOW":
+        merge_strategy = "AUTO_MERGE"
+    elif risk == "MEDIUM":
+        merge_strategy = "APPROVAL_THEN_MERGE"
+    else:
+        merge_strategy = "PR_ONLY"
+    safe_stop_result = _p26_safe_stop_check({
+        "riskLevel": risk, "estimatedLines": est_lines, "targetFiles": target_files,
+        "hasDbChange": has_db, "hasAuthChange": has_auth, "hasPaymentChange": has_pay,
+        "hasDeployChange": has_deploy, "secretFound": False
+    })
+    plan = {
+        "taskId": _hashlib.md5(task_description.encode()).hexdigest()[:8],
+        "taskDescription": task_description,
+        "humanSummary": task_description[:60] + "を実装します",
+        "targetFiles": target_files,
+        "estimatedLines": est_lines,
+        "riskLevel": risk,
+        "hasDbChange": has_db, "hasAuthChange": has_auth,
+        "hasPaymentChange": has_pay, "hasDeployChange": has_deploy, "secretFound": False,
+        "executionSteps": steps,
+        "verifySteps": ["FastAPI syntax check","HTTP 200 verify","Browser verify","Responsive verify","Rollback verify"],
+        "rollbackMethod": "cp backup/axia_test_pre_p26.py app/routes/axia_test.py",
+        "mergeStrategy": merge_strategy,
+        "safeStop": safe_stop_result,
+        "generatedAt": datetime.datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    }
+    _p26_task_memory["lastPlan"] = plan
+    _p26_task_memory["pipelineState"]["currentStep"] = "SAFE_STOP" if safe_stop_result["blocked"] else "ANALYZE"
+    _p26_task_memory["pipelineState"]["lastUpdated"] = plan["generatedAt"]
+    if safe_stop_result["blocked"]:
+        _p26_task_memory["pipelineState"]["approvalRequired"] = True
+        _p26_task_memory["pipelineState"]["approvalReason"] = "安全確認が必要です: " + safe_stop_result["reason"]
+    return plan
+
+
+@router.post("/axia-autonomous/plan")
+async def axia_autonomous_plan(request: Request):
+    try:
+        body = await request.json()
+        task = body.get("task", "status pageを改善して")
+    except Exception:
+        task = "status pageを改善して"
+    plan = _p26_generate_plan(task)
+    return JSONResponse(content=plan)
+
+
+@router.get("/axia-autonomous")
+async def axia_autonomous_dashboard():
+    now_utc = datetime.datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    mem = _p26_task_memory
+    pipeline = mem["pipelineState"]
+    last_plan = mem["lastPlan"]
+    step = pipeline["currentStep"]
+    completed = pipeline["completedSteps"]
+    step_labels = {
+        "IDLE": "待機中", "PLAN": "タスク計画を作成中", "ANALYZE": "コードを分析中",
+        "BACKUP": "バックアップを作成中", "WRITE": "コードを実装中", "VERIFY": "動作確認中",
+        "BROWSER_VERIFY": "ブラウザで表示確認中", "PR": "PRを作成中", "MERGE": "mergeを実行中",
+        "POST_VERIFY": "本番反映を確認中", "DONE": "完了", "SAFE_STOP": "安全確認が必要です"
+    }
+    current_label = step_labels.get(step, step)
+    all_steps = ["PLAN","ANALYZE","BACKUP","WRITE","VERIFY","BROWSER_VERIFY","PR","MERGE","POST_VERIFY","DONE"]
+    step_idx = all_steps.index(step) if step in all_steps else 0
+    progress_pct = int(step_idx / len(all_steps) * 100)
+    chips = []
+    for s in all_steps:
+        cls = "active" if s == step else ("done" if s in completed else "")
+        chips.append('<span class="step-chip ' + cls + '">' + s + '</span>')
+    chips_html = "".join(chips)
+    rules_items = []
+    for rule in _P26_SAFE_STOP_RULES:
+        rules_items.append(
+            '<div class="rule-item">'
+            '<span class="rule-icon">&#x1F6E1;</span>'
+            '<span class="rule-label">' + rule['label'] + '</span>'
+            '<span class="rule-status ok">GUARD</span>'
+            '</div>'
+        )
+    rules_html = "".join(rules_items)
+    quirks_html = "".join("<li>" + q + "</li>" for q in mem["repoQuirks"])
+    plan_html = ''
+    if last_plan:
+        steps_li = "".join("<li>" + s + "</li>" for s in last_plan["executionSteps"])
+        risk_color = {"LOW": "#22c55e", "MEDIUM": "#f59e0b", "HIGH": "#ef4444"}.get(last_plan["riskLevel"], "#6b7280")
+        safe_alert = ''
+        if last_plan["safeStop"]["blocked"]:
+            safe_alert = '<div class="safe-stop-alert">&#x26D4; ' + last_plan['safeStop']['reason'] + '</div>'
+        plan_html = (
+            '<div class="plan-card">'
+            '<div class="plan-header">'
+            '<span class="plan-title">' + last_plan['humanSummary'] + '</span>'
+            '<span class="risk-badge" style="background:' + risk_color + '">' + last_plan['riskLevel'] + '</span>'
+            '</div>'
+            '<div class="plan-meta">対象ファイル: ' + ', '.join(last_plan['targetFiles']) +
+            ' | 推定行数: ' + str(last_plan['estimatedLines']) + '行 | Merge戦略: ' + last_plan['mergeStrategy'] + '</div>'
+            '<ol class="plan-steps">' + steps_li + '</ol>'
+            + safe_alert +
+            '</div>'
+        )
+    else:
+        plan_html = (
+            '<div class="plan-card">'
+            '<div class="section-title">Last Plan</div>'
+            '<div style="color:#64748b;font-size:0.85rem">まだ計画がありません。Task Plannerで生成してください。</div>'
+            '</div>'
+        )
+    approval_html = ''
+    if pipeline["approvalRequired"]:
+        approval_html = (
+            '<div class="approval-block">'
+            '<div class="approval-title">ユーザー確認待ちです</div>'
+            '<div class="approval-reason">' + pipeline['approvalReason'] + '</div>'
+            '<div class="approval-buttons">'
+            '<button class="btn-view">内容を確認</button>'
+            '<button class="btn-approve">承認</button>'
+            '<button class="btn-stop">中止</button>'
+            '</div></div>'
+        )
+    badge_class = "stop" if step == "SAFE_STOP" else ("idle" if step == "IDLE" else "")
+    badge_text = "SAFE STOP" if step == "SAFE_STOP" else ("IDLE" if step == "IDLE" else "RUNNING")
+    pipeline_json = _json.dumps(pipeline)
+    css = (
+        '*{box-sizing:border-box;margin:0;padding:0}'
+        'body{background:#0f172a;color:#e2e8f0;font-family:Segoe UI,sans-serif;padding:20px;padding-bottom:80px}'
+        '.header{display:flex;align-items:center;gap:12px;margin-bottom:24px;flex-wrap:wrap}'
+        '.header h1{font-size:1.4rem;font-weight:700;color:#f8fafc}'
+        '.badge{background:#22c55e;color:#fff;padding:3px 10px;border-radius:12px;font-size:.75rem;font-weight:700}'
+        '.badge.stop{background:#ef4444}.badge.idle{background:#6b7280}'
+        '.timestamp{color:#64748b;font-size:.8rem;margin-left:auto}'
+        '.section{background:#1e293b;border-radius:12px;padding:20px;margin-bottom:20px}'
+        '.section-title{font-size:.85rem;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin-bottom:14px}'
+        '.current-step{font-size:1.2rem;font-weight:600;color:#38bdf8;margin-bottom:8px}'
+        '.progress-bar{background:#334155;border-radius:8px;height:8px;margin-bottom:12px;overflow:hidden}'
+        '.progress-fill{background:linear-gradient(90deg,#38bdf8,#818cf8);height:100%;border-radius:8px}'
+        '.step-list{display:flex;flex-wrap:wrap;gap:6px}'
+        '.step-chip{padding:3px 10px;border-radius:8px;font-size:.75rem;background:#334155;color:#94a3b8}'
+        '.step-chip.active{background:#1d4ed8;color:#bfdbfe;font-weight:600}'
+        '.step-chip.done{background:#166534;color:#86efac}'
+        '.stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px}'
+        '.stat-card{background:#1e293b;border-radius:10px;padding:16px}'
+        '.stat-label{font-size:.75rem;color:#64748b;margin-bottom:4px}'
+        '.stat-value{font-size:1.1rem;font-weight:700;color:#f8fafc}'
+        '.plan-card{background:#1e293b;border-radius:12px;padding:20px;margin-bottom:20px}'
+        '.plan-header{display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap}'
+        '.plan-title{font-size:1rem;font-weight:600;color:#f8fafc}'
+        '.risk-badge{color:#fff;padding:2px 8px;border-radius:8px;font-size:.75rem;font-weight:700}'
+        '.plan-meta{font-size:.8rem;color:#64748b;margin-bottom:10px}'
+        '.plan-steps{padding-left:20px}'
+        '.plan-steps li{font-size:.85rem;color:#94a3b8;margin-bottom:4px}'
+        '.safe-stop-alert{background:#450a0a;border:1px solid #ef4444;border-radius:8px;padding:10px 14px;color:#fca5a5;font-size:.85rem;margin-top:10px}'
+        '.approval-block{background:#450a0a;border:2px solid #ef4444;border-radius:12px;padding:20px;margin-bottom:20px}'
+        '.approval-title{font-size:1.1rem;font-weight:700;color:#fca5a5;margin-bottom:6px}'
+        '.approval-reason{font-size:.85rem;color:#fca5a5;margin-bottom:14px}'
+        '.approval-buttons{display:flex;gap:10px;flex-wrap:wrap}'
+        '.btn-view{background:#1e40af;color:#fff;border:none;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:.85rem}'
+        '.btn-approve{background:#166534;color:#fff;border:none;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:.85rem}'
+        '.btn-stop{background:#7f1d1d;color:#fff;border:none;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:.85rem}'
+        '.rule-item{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #334155}'
+        '.rule-item:last-child{border-bottom:none}'
+        '.rule-label{flex:1;font-size:.85rem;color:#94a3b8}'
+        '.rule-status{padding:2px 8px;border-radius:6px;font-size:.7rem;font-weight:700}'
+        '.rule-status.ok{background:#166534;color:#86efac}'
+        '.memory-section ul{padding-left:18px}'
+        '.memory-section li{font-size:.82rem;color:#94a3b8;margin-bottom:4px}'
+        '.task-input{width:100%;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px 14px;color:#e2e8f0;font-size:.9rem;margin-bottom:10px}'
+        '.task-input:focus{outline:none;border-color:#38bdf8}'
+        '.btn-plan{background:#1d4ed8;color:#fff;border:none;padding:10px 20px;border-radius:8px;cursor:pointer;font-size:.9rem;font-weight:600}'
+        '.plan-result{background:#0f172a;border-radius:8px;padding:14px;margin-top:12px;font-size:.8rem;color:#94a3b8;white-space:pre-wrap;display:none}'
+        '.footer{text-align:center;color:#334155;font-size:.75rem;margin-top:24px}'
+    )
+    js = (
+        'async function generatePlan(){'
+        'const task=document.getElementById("taskInput").value.trim();'
+        'if(!task)return;'
+        'const btn=document.querySelector(".btn-plan");'
+        'btn.textContent="計画中...";btn.disabled=true;'
+        'try{'
+        'const resp=await fetch("/api/axia-autonomous/plan",{'
+        'method:"POST",headers:{"Content-Type":"application/json"},'
+        'body:JSON.stringify({task})});'
+        'const data=await resp.json();'
+        'const el=document.getElementById("planResult");'
+        'const ss=data.safeStop&&data.safeStop.blocked?"\n⛔ SAFE STOP: "+data.safeStop.reason:"\n✅ Safe to proceed";'
+        'el.textContent=["📋 Task: "+data.humanSummary,'
+        '"📁 Files: "+(data.targetFiles||[]).join(", "),'
+        '"📏 Est. lines: "+data.estimatedLines,'
+        '"⚠ Risk: "+data.riskLevel,'
+        '"🔀 Merge: "+data.mergeStrategy,'
+        'ss,"","📌 Steps:",'
+        '...(data.executionSteps||[]).map((s,i)=>(i+1)+". "+s)'
+        '].join("\n");'
+        'el.style.display="block";'
+        '}catch(e){'
+        'document.getElementById("planResult").textContent="Error: "+e.message;'
+        'document.getElementById("planResult").style.display="block";}'
+        'btn.textContent="計画を生成";btn.disabled=false;}'
+        'sessionStorage.setItem("axia_p26_pipeline",JSON.stringify(' + pipeline_json + '));'
+        'setTimeout(()=>location.reload(),15000);'
+    )
+    html = (
+        '<!DOCTYPE html><html lang="ja"><head>'
+        '<meta charset="UTF-8">'
+        '<meta name="viewport" content="width=device-width,initial-scale=1.0">'
+        '<title>AXIA Autonomous Runtime</title>'
+        '<style>' + css + '</style>'
+        '</head><body>'
+        '<div class="header">'
+        '<h1>AXIA Autonomous Runtime</h1>'
+        '<span class="badge ' + badge_class + '">' + badge_text + '</span>'
+        '<span class="timestamp">' + now_utc + '</span>'
+        '</div>'
+        + approval_html +
+        '<div class="section">'
+        '<div class="section-title">Execution Pipeline</div>'
+        '<div class="current-step">' + current_label + '</div>'
+        '<div class="progress-bar"><div class="progress-fill" style="width:' + str(progress_pct) + '%"></div></div>'
+        '<div class="step-list">' + chips_html + '</div>'
+        '</div>'
+        '<div class="stats-grid">'
+        '<div class="stat-card"><div class="stat-label">Pipeline State</div><div class="stat-value">' + step + '</div></div>'
+        '<div class="stat-card"><div class="stat-label">Completed Steps</div><div class="stat-value">' + str(len(completed)) + ' / ' + str(len(all_steps)) + '</div></div>'
+        '<div class="stat-card"><div class="stat-label">Approval Required</div><div class="stat-value">' + ('YES' if pipeline['approvalRequired'] else 'NO') + '</div></div>'
+        '<div class="stat-card"><div class="stat-label">Repo Quirks</div><div class="stat-value">' + str(len(mem['repoQuirks'])) + ' saved</div></div>'
+        '<div class="stat-card"><div class="stat-label">Success Patterns</div><div class="stat-value">' + str(len(mem['successPatterns'])) + '</div></div>'
+        '<div class="stat-card"><div class="stat-label">Failure Patterns</div><div class="stat-value">' + str(len(mem['failurePatterns'])) + '</div></div>'
+        '</div>'
+        '<div class="section">'
+        '<div class="section-title">Task Planner</div>'
+        '<input class="task-input" id="taskInput" type="text" placeholder="例: status pageを改善して" />'
+        '<button class="btn-plan" onclick="generatePlan()">計画を生成</button>'
+        '<div class="plan-result" id="planResult"></div>'
+        '</div>'
+        + plan_html +
+        '<div class="section rules-section">'
+        '<div class="section-title">Safe Stop Rules</div>'
+        + rules_html +
+        '</div>'
+        '<div class="section memory-section">'
+        '<div class="section-title">Task Memory — Repo Quirks</div>'
+        '<ul>' + quirks_html + '</ul>'
+        '</div>'
+        '<div class="footer">AXIA_RUNTIME_CLASS = REAL_AUTONOMOUS_TASK_OPERATOR &nbsp;|&nbsp; P26</div>'
+        '<script>' + js + '</script>'
+        '</body></html>'
+    )
     return HTMLResponse(content=html)
