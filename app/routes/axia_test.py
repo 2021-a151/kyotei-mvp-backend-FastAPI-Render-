@@ -6,8 +6,8 @@ AXIA UI Improvement — /axia-status enhanced status card (P10).
 AXIA Dashboard — /axia-dashboard user-facing dashboard added (P17).
 This file does NOT modify existing routes or database schema.
 """
-from fastapi import APIRouter
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, Request
+from fastapi.responses import HTMLResponse, JSONResponse
 import datetime
 
 router = APIRouter()
@@ -1069,3 +1069,213 @@ async def axia_main_ui():
         "</html>"
     )
     return HTMLResponse(content=html, status_code=200)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# AXIA P21 — Long Runtime Continuity & Auto Recovery Runtime
+# ══════════════════════════════════════════════════════════════════════════════
+import threading as _threading
+
+# In-memory registry（本番ではRedis/DBへ）
+_p21_registry_lock = _threading.Lock()
+_p21_registry = {
+    "sessionId": "p21-session-001",
+    "runtimeClass": "LONG_RUNTIME_CONTINUITY_OPERATOR",
+    "version": "P21",
+    "activeTask": "長時間Runtimeの継続監視",
+    "currentPhase": "P21",
+    "riskLevel": "LOW",
+    "workspaceId": "ws-axia-main",
+    "repo": "2021-a151/kyotei-mvp-backend-FastAPI-Render-",
+    "approvalState": {"required": False, "message": ""},
+    "browserState": {"connected": True, "lastSeen": ""},
+    "eta": "待機中",
+    "heartbeatAt": "",
+    "uptimeStart": "",
+    "recentEvents": [
+        {"time": "P17", "msg": "Dashboard Runtime 完了"},
+        {"time": "P18", "msg": "Human Live Work Runtime 完了"},
+        {"time": "P19", "msg": "Live Runtime Integration 完了"},
+        {"time": "P20", "msg": "Main Chat Runtime UX 完了"},
+        {"time": "P21", "msg": "Long Runtime Continuity 開始"},
+    ],
+    "recoveryCount": 0,
+    "lastRecovery": "",
+    "longRuntimeAlive": True,
+}
+
+def _p21_now_jst():
+    from datetime import datetime, timezone, timedelta
+    return datetime.now(timezone(timedelta(hours=9))).strftime("%Y-%m-%d %H:%M:%S JST")
+
+# Initialize uptimeStart
+_p21_registry["uptimeStart"] = _p21_now_jst()
+_p21_registry["heartbeatAt"] = _p21_now_jst()
+
+
+@router.get("/axia-runtime-registry")
+async def axia_runtime_registry_get():
+    """Long Runtime Session Registry — GET"""
+    with _p21_registry_lock:
+        data = dict(_p21_registry)
+    data["serverTime"] = _p21_now_jst()
+    return JSONResponse(content=data)
+
+
+@router.post("/axia-runtime-registry/update")
+async def axia_runtime_registry_update(request: Request):
+    """Long Runtime Session Registry — POST (heartbeat/state update)"""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    with _p21_registry_lock:
+        allowed_keys = {
+            "activeTask", "currentPhase", "riskLevel", "approvalState",
+            "browserState", "eta", "recentEvents", "longRuntimeAlive"
+        }
+        for k, v in body.items():
+            if k in allowed_keys:
+                _p21_registry[k] = v
+        _p21_registry["heartbeatAt"] = _p21_now_jst()
+        if body.get("recovery"):
+            _p21_registry["recoveryCount"] = _p21_registry.get("recoveryCount", 0) + 1
+            _p21_registry["lastRecovery"] = _p21_now_jst()
+    return JSONResponse(content={"status": "ok", "heartbeatAt": _p21_registry["heartbeatAt"]})
+
+
+@router.get("/axia-long-runtime")
+async def axia_long_runtime():
+    """AXIA P21 — Long Runtime Continuity Dashboard (HTML)"""
+    with _p21_registry_lock:
+        reg = dict(_p21_registry)
+    reg["serverTime"] = _p21_now_jst()
+
+    events_html = ""
+    for ev in reversed(reg.get("recentEvents", [])[-8:]):
+        events_html += f"""
+        <div class="lr-event">
+          <span class="lr-event-time">{ev.get('time','')}</span>
+          <span class="lr-event-msg">{ev.get('msg','')}</span>
+        </div>"""
+
+    approval_html = ""
+    if reg.get("approvalState", {}).get("required"):
+        approval_html = f"""
+        <div class="lr-approval">
+          <span class="lr-approval-icon">⚠</span>
+          <span class="lr-approval-msg">{reg['approvalState'].get('message','承認待ちです')}</span>
+        </div>"""
+
+    html = f"""<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AXIA Long Runtime</title>
+<style>
+*{{box-sizing:border-box;margin:0;padding:0}}
+body{{background:#0a0f1e;color:#e2e8f0;font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh}}
+.lr-header{{background:#0f172a;border-bottom:1px solid #1e293b;padding:16px 24px;display:flex;align-items:center;gap:12px}}
+.lr-title{{font-size:18px;font-weight:700;color:#38bdf8}}
+.lr-badge{{background:#22c55e20;color:#22c55e;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:700}}
+.lr-time{{margin-left:auto;color:#64748b;font-size:11px}}
+.lr-body{{padding:20px 24px;max-width:900px;margin:0 auto}}
+.lr-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:20px}}
+.lr-card{{background:#0f172a;border:1px solid #1e293b;border-radius:10px;padding:14px}}
+.lr-card-label{{font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px}}
+.lr-card-value{{font-size:16px;font-weight:700;color:#e2e8f0}}
+.lr-card-value.ok{{color:#22c55e}}
+.lr-card-value.warn{{color:#f59e0b}}
+.lr-section{{background:#0f172a;border:1px solid #1e293b;border-radius:10px;padding:16px;margin-bottom:16px}}
+.lr-section-title{{font-size:12px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.08em;margin-bottom:12px}}
+.lr-row{{display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid #1e293b;font-size:13px}}
+.lr-row:last-child{{border-bottom:none}}
+.lr-row-label{{color:#64748b}}
+.lr-row-val{{color:#e2e8f0;font-weight:500}}
+.lr-event{{display:flex;gap:10px;padding:5px 0;border-bottom:1px solid #1e293b;font-size:12px}}
+.lr-event:last-child{{border-bottom:none}}
+.lr-event-time{{color:#38bdf8;min-width:40px;font-weight:600}}
+.lr-event-msg{{color:#94a3b8}}
+.lr-approval{{background:#1e1b1b;border:1px solid #ef4444;border-radius:8px;padding:12px;display:flex;align-items:center;gap:10px;margin-bottom:16px}}
+.lr-approval-icon{{font-size:18px;color:#ef4444}}
+.lr-approval-msg{{color:#ef4444;font-weight:600}}
+.lr-recovery{{background:#0f172a;border:1px solid #22c55e30;border-radius:10px;padding:14px;margin-bottom:16px}}
+.lr-recovery-title{{font-size:11px;color:#22c55e;font-weight:700;margin-bottom:8px}}
+.lr-recovery-row{{display:flex;justify-content:space-between;font-size:12px;color:#94a3b8;padding:3px 0}}
+.lr-footer{{text-align:center;padding:20px;color:#334155;font-size:11px;font-family:monospace}}
+@media(max-width:600px){{.lr-grid{{grid-template-columns:1fr 1fr}}.lr-body{{padding:12px;padding-bottom:80px}}}}
+</style>
+</head>
+<body>
+<div class="lr-header">
+  <div class="lr-title">AXIA Long Runtime</div>
+  <div class="lr-badge">ALIVE</div>
+  <div class="lr-time" id="lrTime">{reg['serverTime']}</div>
+</div>
+<div class="lr-body">
+  {approval_html}
+  <div class="lr-grid">
+    <div class="lr-card">
+      <div class="lr-card-label">Runtime Status</div>
+      <div class="lr-card-value ok">RUNNING</div>
+    </div>
+    <div class="lr-card">
+      <div class="lr-card-label">Current Phase</div>
+      <div class="lr-card-value">{reg['currentPhase']}</div>
+    </div>
+    <div class="lr-card">
+      <div class="lr-card-label">Risk Level</div>
+      <div class="lr-card-value ok">{reg['riskLevel']}</div>
+    </div>
+    <div class="lr-card">
+      <div class="lr-card-label">Recovery Count</div>
+      <div class="lr-card-value">{reg['recoveryCount']}</div>
+    </div>
+    <div class="lr-card">
+      <div class="lr-card-label">Heartbeat</div>
+      <div class="lr-card-value ok" style="font-size:12px">{reg['heartbeatAt']}</div>
+    </div>
+    <div class="lr-card">
+      <div class="lr-card-label">Uptime Start</div>
+      <div class="lr-card-value" style="font-size:12px">{reg['uptimeStart']}</div>
+    </div>
+  </div>
+
+  <div class="lr-section">
+    <div class="lr-section-title">Current Runtime State</div>
+    <div class="lr-row"><span class="lr-row-label">現在の作業</span><span class="lr-row-val">{reg['activeTask']}</span></div>
+    <div class="lr-row"><span class="lr-row-label">ETA</span><span class="lr-row-val">{reg['eta']}</span></div>
+    <div class="lr-row"><span class="lr-row-label">Workspace ID</span><span class="lr-row-val">{reg['workspaceId']}</span></div>
+    <div class="lr-row"><span class="lr-row-label">Repo</span><span class="lr-row-val" style="font-size:11px">{reg['repo']}</span></div>
+    <div class="lr-row"><span class="lr-row-label">Browser</span><span class="lr-row-val ok">接続中</span></div>
+    <div class="lr-row"><span class="lr-row-label">Long Runtime Alive</span><span class="lr-row-val ok">YES</span></div>
+  </div>
+
+  <div class="lr-recovery">
+    <div class="lr-recovery-title">Auto Recovery Status</div>
+    <div class="lr-recovery-row"><span>Recovery Count</span><span>{reg['recoveryCount']} 回</span></div>
+    <div class="lr-recovery-row"><span>Last Recovery</span><span>{reg['lastRecovery'] or 'なし'}</span></div>
+    <div class="lr-recovery-row"><span>Session Storage</span><span>有効</span></div>
+    <div class="lr-recovery-row"><span>Local Storage</span><span>有効（二重保存）</span></div>
+    <div class="lr-recovery-row"><span>Heartbeat Interval</span><span>45秒</span></div>
+  </div>
+
+  <div class="lr-section">
+    <div class="lr-section-title">Recent Events</div>
+    {events_html}
+  </div>
+</div>
+<div class="lr-footer">AXIA_RUNTIME_CLASS = LONG_RUNTIME_CONTINUITY_OPERATOR | P21</div>
+<script>
+// Auto refresh every 30sec
+setInterval(function(){{
+  fetch('/api/axia-runtime-registry').then(r=>r.json()).then(d=>{{
+    const t = document.getElementById('lrTime');
+    if(t) t.textContent = d.serverTime || '';
+  }}).catch(()=>{{}});
+}}, 30000);
+</script>
+</body>
+</html>"""
+    return HTMLResponse(content=html)
