@@ -6104,3 +6104,606 @@ h2{{font-size:.9rem;font-weight:600;color:#94a3b8;margin-bottom:8px}}
 </div>
 <div class="footer">AXIA_RUNTIME_CLASS = SELF_HEALING_AUTONOMOUS_OPERATOR | P41-P45</div>
 </body></html>""")
+
+
+# ============================================================
+# AXIA P46-P50: Autonomous Product & Growth Runtime
+# P46: Product Insight Runtime
+# P47: UX Analysis Runtime
+# P48: Conversion Improvement Runtime
+# P49: Growth Workflow Runtime
+# P50: Human Growth Dashboard
+# ============================================================
+
+import uuid as _p46_uuid
+
+_p46_lock = _p28_lock.__class__()  # RLock
+
+_p46_state = {
+    "productInsights": [],
+    "lastInsight": None,
+    "insightVersion": "P46",
+    "autoModifyAllowed": False,
+    "serverTime": None,
+}
+
+_p47_state = {
+    "uxAnalyses": [],
+    "lastAnalysis": None,
+    "uxVersion": "P47",
+    "autoModifyAllowed": False,
+    "serverTime": None,
+}
+
+_p48_state = {
+    "conversionAnalyses": [],
+    "lastAnalysis": None,
+    "conversionVersion": "P48",
+    "autoModifyAllowed": False,
+    "serverTime": None,
+}
+
+_p49_state = {
+    "growthWorkflows": [],
+    "currentWorkflow": None,
+    "growthVersion": "P49",
+    "serverTime": None,
+}
+
+_p50_state = {
+    "productHealth": 0,
+    "uxScore": 0,
+    "conversionScore": 0,
+    "topProblems": [],
+    "improvementIdeas": [],
+    "growthVersion": "P50",
+    "serverTime": None,
+}
+
+
+def _p46_now_str():
+    import datetime
+    jst = datetime.timezone(datetime.timedelta(hours=9))
+    return datetime.datetime.now(jst).strftime("%H:%M")
+
+
+def _p46_analyze_product(content: str, productType: str = "LP"):
+    """P46: Product Insight 分析"""
+    content_lower = content.lower()
+    
+    # Value points detection
+    value_keywords = ["簡単", "安全", "高品質", "実績", "保証", "無料", "お得", "便利", "fast", "easy", "secure", "free", "quality"]
+    value_points = [kw for kw in value_keywords if kw in content_lower]
+    
+    # Weak points detection
+    weak_signals = []
+    if len(content) < 200:
+        weak_signals.append("情報量が少ない")
+    if "価格" not in content and "料金" not in content and "price" not in content_lower:
+        weak_signals.append("価格情報がない")
+    if "お問い合わせ" not in content and "contact" not in content_lower:
+        weak_signals.append("連絡先が不明")
+    if "実績" not in content and "事例" not in content and "case" not in content_lower:
+        weak_signals.append("実績・事例がない")
+    
+    # Missing elements
+    missing = []
+    if "CTA" not in content and "申し込み" not in content and "登録" not in content:
+        missing.append("CTAボタン")
+    if "FAQ" not in content and "よくある質問" not in content:
+        missing.append("FAQ")
+    if "testimonial" not in content_lower and "口コミ" not in content and "レビュー" not in content:
+        missing.append("口コミ・レビュー")
+    
+    # Target users
+    target_users = "一般ユーザー"
+    if "企業" in content or "法人" in content or "business" in content_lower:
+        target_users = "法人・企業"
+    elif "個人" in content or "consumer" in content_lower:
+        target_users = "個人ユーザー"
+    
+    # Clarity score (0-100)
+    clarity_score = 50
+    clarity_score += min(len(value_points) * 5, 20)
+    clarity_score -= min(len(weak_signals) * 8, 30)
+    clarity_score -= min(len(missing) * 5, 20)
+    clarity_score = max(10, min(100, clarity_score))
+    
+    # Product summary
+    if len(content) > 100:
+        product_summary = content[:80] + "..."
+    else:
+        product_summary = content or "コンテンツ未入力"
+    
+    return {
+        "insightId": str(_p46_uuid.uuid4())[:8],
+        "productType": productType,
+        "productSummary": product_summary,
+        "targetUsers": target_users,
+        "valuePoints": value_points[:5],
+        "weakPoints": weak_signals,
+        "missingElements": missing,
+        "clarityScore": clarity_score,
+        "autoModifyAllowed": False,
+        "humanMessage": f"製品分析完了。明瞭度スコア: {clarity_score}/100",
+        "time": _p46_now_str(),
+        "insightVersion": "P46",
+    }
+
+
+def _p47_analyze_ux(html_content: str, page_type: str = "LP"):
+    """P47: UX Analysis"""
+    html_lower = html_content.lower()
+    issues = []
+    suggestions = []
+    
+    # CTA visibility
+    has_cta = any(kw in html_content for kw in ["申し込み", "登録", "購入", "CTA", "button", "btn"])
+    if not has_cta:
+        issues.append({"type": "cta_missing", "severity": "HIGH", "description": "CTAが見つかりません"})
+        suggestions.append({"issue": "cta_missing", "suggestion": "目立つCTAボタンを追加してください"})
+    
+    # Mobile usability
+    has_viewport = "viewport" in html_lower
+    has_responsive = "responsive" in html_lower or "@media" in html_lower or "max-width" in html_lower
+    if not has_viewport:
+        issues.append({"type": "mobile_viewport_missing", "severity": "HIGH", "description": "viewportメタタグがありません"})
+        suggestions.append({"issue": "mobile_viewport_missing", "suggestion": "viewportメタタグを追加してください"})
+    if not has_responsive:
+        issues.append({"type": "not_responsive", "severity": "MEDIUM", "description": "レスポンシブ対応が不十分です"})
+        suggestions.append({"issue": "not_responsive", "suggestion": "CSSメディアクエリを追加してください"})
+    
+    # Readability
+    if len(html_content) > 5000:
+        issues.append({"type": "information_overload", "severity": "MEDIUM", "description": "情報量が多すぎます"})
+        suggestions.append({"issue": "information_overload", "suggestion": "コンテンツを整理・分割してください"})
+    
+    # Navigation / flow
+    has_nav = "nav" in html_lower or "menu" in html_lower or "navigation" in html_lower
+    if not has_nav and len(html_content) > 500:
+        issues.append({"type": "no_navigation", "severity": "LOW", "description": "ナビゲーションがありません"})
+        suggestions.append({"issue": "no_navigation", "suggestion": "ナビゲーションメニューを追加してください"})
+    
+    # UX Score
+    ux_score = 80
+    for issue in issues:
+        if issue["severity"] == "HIGH":
+            ux_score -= 15
+        elif issue["severity"] == "MEDIUM":
+            ux_score -= 8
+        else:
+            ux_score -= 3
+    ux_score = max(10, min(100, ux_score))
+    
+    # Priority fixes
+    priority_fixes = [i["description"] for i in issues if i["severity"] == "HIGH"]
+    
+    return {
+        "analysisId": str(_p46_uuid.uuid4())[:8],
+        "pageType": page_type,
+        "uxScore": ux_score,
+        "uxIssues": issues,
+        "uxSuggestions": suggestions,
+        "priorityFixes": priority_fixes,
+        "mobileUsability": "OK" if has_viewport and has_responsive else "NEEDS_IMPROVEMENT",
+        "ctaVisibility": "OK" if has_cta else "MISSING",
+        "autoModifyAllowed": False,
+        "humanMessage": f"UX分析完了。スコア: {ux_score}/100",
+        "time": _p46_now_str(),
+        "uxVersion": "P47",
+    }
+
+
+def _p48_analyze_conversion(content: str, page_type: str = "LP"):
+    """P48: Conversion Improvement"""
+    content_lower = content.lower()
+    risks = []
+    ideas = []
+    
+    # CTA weakness
+    has_strong_cta = any(kw in content for kw in ["今すぐ", "無料で始める", "申し込む", "Get Started", "Sign Up Free"])
+    if not has_strong_cta:
+        risks.append({"type": "weak_cta", "severity": "HIGH", "description": "CTAが弱い・不明確"})
+        ideas.append({"idea": "CTAを「今すぐ無料で始める」などに強化", "impact": "HIGH"})
+    
+    # Form length
+    form_fields = content.count("input") + content.count("フィールド") + content.count("入力")
+    if form_fields > 5:
+        risks.append({"type": "long_form", "severity": "HIGH", "description": "フォームが長すぎる"})
+        ideas.append({"idea": "入力フィールドを3つ以内に削減", "impact": "HIGH"})
+    
+    # Trust signals
+    has_trust = any(kw in content for kw in ["実績", "口コミ", "レビュー", "保証", "SSL", "安全", "trusted"])
+    if not has_trust:
+        risks.append({"type": "low_trust", "severity": "MEDIUM", "description": "信頼性シグナルが不足"})
+        ideas.append({"idea": "お客様の声・実績数字を追加", "impact": "MEDIUM"})
+    
+    # Price clarity
+    has_price = any(kw in content for kw in ["価格", "料金", "円", "¥", "price", "cost", "fee"])
+    if not has_price:
+        risks.append({"type": "price_unclear", "severity": "MEDIUM", "description": "価格が不明確"})
+        ideas.append({"idea": "料金プランを明示する", "impact": "MEDIUM"})
+    
+    # Comparison
+    has_comparison = any(kw in content for kw in ["比較", "他社", "versus", "vs", "competitor"])
+    if not has_comparison:
+        risks.append({"type": "no_comparison", "severity": "LOW", "description": "競合比較がない"})
+        ideas.append({"idea": "比較表を追加して優位性を示す", "impact": "LOW"})
+    
+    # Conversion score
+    conversion_score = 75
+    for risk in risks:
+        if risk["severity"] == "HIGH":
+            conversion_score -= 15
+        elif risk["severity"] == "MEDIUM":
+            conversion_score -= 8
+        else:
+            conversion_score -= 3
+    conversion_score = max(10, min(100, conversion_score))
+    
+    # Impact estimate
+    impact_estimate = "改善により CV率 +10〜30% が見込まれます" if risks else "現状のCV率は良好です"
+    
+    return {
+        "analysisId": str(_p46_uuid.uuid4())[:8],
+        "pageType": page_type,
+        "conversionScore": conversion_score,
+        "conversionRisks": risks,
+        "improvementIdeas": ideas,
+        "impactEstimate": impact_estimate,
+        "autoModifyAllowed": False,
+        "humanMessage": f"CV分析完了。スコア: {conversion_score}/100",
+        "time": _p46_now_str(),
+        "conversionVersion": "P48",
+    }
+
+
+def _p49_create_growth_workflow(goal: str, target_url: str = "", risk_level: str = "LOW"):
+    """P49: Growth Workflow"""
+    steps = [
+        {"step": 1, "action": "LP分析", "status": "pending", "humanLabel": "ページを分析します"},
+        {"step": 2, "action": "UX確認", "status": "pending", "humanLabel": "UX問題を確認します"},
+        {"step": 3, "action": "CV分析", "status": "pending", "humanLabel": "CV改善点を確認します"},
+        {"step": 4, "action": "改善候補生成", "status": "pending", "humanLabel": "改善案を生成します"},
+        {"step": 5, "action": "PR draft生成", "status": "pending", "humanLabel": "PR草案を作成します"},
+        {"step": 6, "action": "approval待ち", "status": "pending", "humanLabel": "承認を待ちます"},
+    ]
+    
+    approval_required = risk_level in ["MEDIUM", "HIGH"]
+    
+    return {
+        "workflowId": str(_p46_uuid.uuid4())[:8],
+        "workflowType": "growth_improvement",
+        "growthGoals": [goal],
+        "targetUrl": target_url,
+        "steps": steps,
+        "currentStep": steps[0]["humanLabel"],
+        "estimatedImpact": "CV率 +10〜30% 改善見込み",
+        "riskLevel": risk_level,
+        "approvalRequired": approval_required,
+        "status": "active",
+        "humanMessage": f"Growth workflow開始: {goal}",
+        "time": _p46_now_str(),
+        "growthVersion": "P49",
+    }
+
+
+def _p50_update_dashboard():
+    """P50: Growth Dashboard 状態更新"""
+    with _p46_lock:
+        product_health = _p46_state["lastInsight"]["clarityScore"] if _p46_state["lastInsight"] else 50
+        ux_score = _p47_state["lastAnalysis"]["uxScore"] if _p47_state["lastAnalysis"] else 50
+        conversion_score = _p48_state["lastAnalysis"]["conversionScore"] if _p48_state["lastAnalysis"] else 50
+        
+        top_problems = []
+        if _p47_state["lastAnalysis"]:
+            top_problems += [i["description"] for i in _p47_state["lastAnalysis"].get("uxIssues", [])[:2]]
+        if _p48_state["lastAnalysis"]:
+            top_problems += [r["description"] for r in _p48_state["lastAnalysis"].get("conversionRisks", [])[:2]]
+        
+        improvement_ideas = []
+        if _p48_state["lastAnalysis"]:
+            improvement_ideas = [i["idea"] for i in _p48_state["lastAnalysis"].get("improvementIdeas", [])[:3]]
+        
+        _p50_state.update({
+            "productHealth": product_health,
+            "uxScore": ux_score,
+            "conversionScore": conversion_score,
+            "topProblems": top_problems[:4],
+            "improvementIdeas": improvement_ideas,
+            "serverTime": _p46_now_str(),
+        })
+
+
+# ---- P46 Endpoints ----
+
+@router.get("/axia-product-insight", response_class=HTMLResponse)
+async def axia_product_insight_view():
+    with _p46_lock:
+        state = dict(_p46_state)
+    last = state.get("lastInsight") or {}
+    insights_count = len(state.get("productInsights", []))
+    clarity = last.get("clarityScore", "-")
+    target = last.get("targetUsers", "-")
+    value_pts = last.get("valuePoints", [])
+    weak_pts = last.get("weakPoints", [])
+    missing = last.get("missingElements", [])
+    
+    value_html = "".join(f"<li>{v}</li>" for v in value_pts) or "<li>未分析</li>"
+    weak_html = "".join(f"<li>{w}</li>" for w in weak_pts) or "<li>なし</li>"
+    missing_html = "".join(f"<li>{m}</li>" for m in missing) or "<li>なし</li>"
+    
+    html = f"""<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AXIA P46 Product Insight</title>
+<style>
+*{{box-sizing:border-box;margin:0;padding:0}}
+body{{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#0f172a;color:#e2e8f0;padding:16px;min-height:100vh}}
+.header{{background:linear-gradient(135deg,#1e3a5f,#0f172a);border:1px solid #334155;border-radius:12px;padding:20px;margin-bottom:16px;text-align:center}}
+h1{{font-size:1.4rem;color:#60a5fa;margin-bottom:4px}}
+.subtitle{{color:#94a3b8;font-size:0.85rem}}
+.card{{background:#1e293b;border:1px solid #334155;border-radius:10px;padding:16px;margin-bottom:12px}}
+h2{{font-size:1rem;color:#93c5fd;margin-bottom:10px}}
+.score{{font-size:2.5rem;font-weight:bold;color:#34d399;text-align:center;padding:10px 0}}
+ul{{list-style:none;padding:0}}
+li{{padding:4px 0;border-bottom:1px solid #1e293b;color:#cbd5e1;font-size:0.9rem}}
+li:last-child{{border-bottom:none}}
+.badge{{display:inline-block;padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:bold}}
+.badge-ok{{background:#064e3b;color:#34d399}}
+.badge-warn{{background:#78350f;color:#fbbf24}}
+.footer{{text-align:center;color:#475569;font-size:0.75rem;margin-top:16px;padding:10px}}
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>P46 Product Insight</h1>
+  <div class="subtitle">製品・サービス分析 | 分析数: {insights_count}</div>
+</div>
+<div class="card">
+  <h2>明瞭度スコア</h2>
+  <div class="score">{clarity}<span style="font-size:1rem;color:#94a3b8"> / 100</span></div>
+</div>
+<div class="card">
+  <h2>ターゲットユーザー</h2>
+  <p style="color:#cbd5e1">{target}</p>
+</div>
+<div class="card">
+  <h2>強み</h2>
+  <ul>{value_html}</ul>
+</div>
+<div class="card">
+  <h2>弱み</h2>
+  <ul>{weak_html}</ul>
+</div>
+<div class="card">
+  <h2>不足要素</h2>
+  <ul>{missing_html}</ul>
+</div>
+<div class="footer">
+  AXIA_RUNTIME_CLASS = AUTONOMOUS_PRODUCT_GROWTH_OPERATOR | P46-P50<br>
+  自動変更禁止 — 提案のみ
+</div>
+</body>
+</html>"""
+    return HTMLResponse(content=html)
+
+
+class _P46AnalyzeRequest(_P28BaseModel):
+    content: str = ""
+    productType: str = "LP"
+
+
+@router.post("/axia-product-insight/analyze")
+async def axia_product_insight_analyze(req: _P46AnalyzeRequest):
+    result = _p46_analyze_product(req.content, req.productType)
+    with _p46_lock:
+        _p46_state["productInsights"].append(result)
+        _p46_state["lastInsight"] = result
+        _p46_state["serverTime"] = result["time"]
+    _p50_update_dashboard()
+    return result
+
+
+# ---- P47 Endpoints ----
+
+@router.get("/axia-ux-analysis")
+async def axia_ux_analysis_state():
+    with _p46_lock:
+        return {
+            "uxAnalyses": _p47_state["uxAnalyses"][-10:],
+            "lastAnalysis": _p47_state["lastAnalysis"],
+            "uxVersion": "P47",
+            "autoModifyAllowed": False,
+            "serverTime": _p46_now_str(),
+        }
+
+
+class _P47CheckRequest(_P28BaseModel):
+    htmlContent: str = ""
+    pageType: str = "LP"
+
+
+@router.post("/axia-ux-analysis/check")
+async def axia_ux_analysis_check(req: _P47CheckRequest):
+    result = _p47_analyze_ux(req.htmlContent, req.pageType)
+    with _p46_lock:
+        _p47_state["uxAnalyses"].append(result)
+        _p47_state["lastAnalysis"] = result
+        _p47_state["serverTime"] = result["time"]
+    _p50_update_dashboard()
+    return result
+
+
+# ---- P48 Endpoints ----
+
+@router.get("/axia-conversion")
+async def axia_conversion_state():
+    with _p46_lock:
+        return {
+            "conversionAnalyses": _p48_state["conversionAnalyses"][-10:],
+            "lastAnalysis": _p48_state["lastAnalysis"],
+            "conversionVersion": "P48",
+            "autoModifyAllowed": False,
+            "serverTime": _p46_now_str(),
+        }
+
+
+class _P48AnalyzeRequest(_P28BaseModel):
+    content: str = ""
+    pageType: str = "LP"
+
+
+@router.post("/axia-conversion/analyze")
+async def axia_conversion_analyze(req: _P48AnalyzeRequest):
+    result = _p48_analyze_conversion(req.content, req.pageType)
+    with _p46_lock:
+        _p48_state["conversionAnalyses"].append(result)
+        _p48_state["lastAnalysis"] = result
+        _p48_state["serverTime"] = result["time"]
+    _p50_update_dashboard()
+    return result
+
+
+# ---- P49 Endpoints ----
+
+@router.get("/axia-growth/state")
+async def axia_growth_state():
+    with _p46_lock:
+        _p50_update_dashboard()
+        return {
+            "growthWorkflows": _p49_state["growthWorkflows"][-10:],
+            "currentWorkflow": _p49_state["currentWorkflow"],
+            "productHealth": _p50_state["productHealth"],
+            "uxScore": _p50_state["uxScore"],
+            "conversionScore": _p50_state["conversionScore"],
+            "topProblems": _p50_state["topProblems"],
+            "improvementIdeas": _p50_state["improvementIdeas"],
+            "growthVersion": "P49-P50",
+            "serverTime": _p46_now_str(),
+        }
+
+
+class _P49WorkflowRequest(_P28BaseModel):
+    goal: str = ""
+    targetUrl: str = ""
+    riskLevel: str = "LOW"
+
+
+@router.post("/axia-growth/workflow")
+async def axia_growth_workflow(req: _P49WorkflowRequest):
+    result = _p49_create_growth_workflow(req.goal, req.targetUrl, req.riskLevel)
+    with _p46_lock:
+        _p49_state["growthWorkflows"].append(result)
+        _p49_state["currentWorkflow"] = result
+        _p49_state["serverTime"] = result["time"]
+    return result
+
+
+# ---- P50 Human Growth Dashboard ----
+
+@router.get("/axia-growth", response_class=HTMLResponse)
+async def axia_growth_dashboard():
+    with _p46_lock:
+        _p50_update_dashboard()
+        state = dict(_p50_state)
+        workflow = _p49_state.get("currentWorkflow")
+    
+    product_health = state["productHealth"]
+    ux_score = state["uxScore"]
+    conversion_score = state["conversionScore"]
+    top_problems = state["topProblems"]
+    ideas = state["improvementIdeas"]
+    
+    def score_color(s):
+        if s >= 70: return "#34d399"
+        if s >= 50: return "#fbbf24"
+        return "#f87171"
+    
+    problems_html = "".join(f"<li>{p}</li>" for p in top_problems) or "<li>問題なし</li>"
+    ideas_html = "".join(f"<li>{i}</li>" for i in ideas) or "<li>提案なし</li>"
+    
+    workflow_html = ""
+    if workflow:
+        wf_steps = "".join(
+            f'<li style="color:{"#34d399" if s["status"]=="done" else "#94a3b8"}">'
+            f'{"✅" if s["status"]=="done" else "○"} {s["humanLabel"]}</li>'
+            for s in workflow.get("steps", [])
+        )
+        workflow_html = f"""
+<div class="card">
+  <h2>Growth Workflow</h2>
+  <p style="color:#60a5fa;margin-bottom:8px">{workflow.get("growthGoals", [""])[0]}</p>
+  <ul>{wf_steps}</ul>
+  <p style="margin-top:8px;color:#94a3b8;font-size:0.85rem">
+    リスク: {workflow.get("riskLevel","LOW")} | 
+    承認必要: {"はい" if workflow.get("approvalRequired") else "いいえ"}
+  </p>
+</div>"""
+    
+    html = f"""<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AXIA Growth Dashboard</title>
+<style>
+*{{box-sizing:border-box;margin:0;padding:0}}
+body{{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#0f172a;color:#e2e8f0;padding:16px;min-height:100vh}}
+.header{{background:linear-gradient(135deg,#1e3a5f,#0f172a);border:1px solid #334155;border-radius:12px;padding:20px;margin-bottom:16px;text-align:center}}
+h1{{font-size:1.4rem;color:#60a5fa;margin-bottom:4px}}
+.subtitle{{color:#94a3b8;font-size:0.85rem}}
+.scores{{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:12px}}
+.score-card{{background:#1e293b;border:1px solid #334155;border-radius:10px;padding:16px;text-align:center}}
+.score-label{{color:#94a3b8;font-size:0.8rem;margin-bottom:6px}}
+.score-value{{font-size:2rem;font-weight:bold}}
+.card{{background:#1e293b;border:1px solid #334155;border-radius:10px;padding:16px;margin-bottom:12px}}
+h2{{font-size:1rem;color:#93c5fd;margin-bottom:10px}}
+ul{{list-style:none;padding:0}}
+li{{padding:5px 0;border-bottom:1px solid #0f172a;color:#cbd5e1;font-size:0.9rem}}
+li:last-child{{border-bottom:none}}
+.footer{{text-align:center;color:#475569;font-size:0.75rem;margin-top:16px;padding:10px}}
+@media(max-width:480px){{.scores{{grid-template-columns:1fr}}}}
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>Growth Dashboard</h1>
+  <div class="subtitle">P46-P50 | 自動変更禁止 — 提案のみ</div>
+</div>
+<div class="scores">
+  <div class="score-card">
+    <div class="score-label">Product Health</div>
+    <div class="score-value" style="color:{score_color(product_health)}">{product_health}</div>
+    <div style="color:#64748b;font-size:0.75rem">/ 100</div>
+  </div>
+  <div class="score-card">
+    <div class="score-label">UX Score</div>
+    <div class="score-value" style="color:{score_color(ux_score)}">{ux_score}</div>
+    <div style="color:#64748b;font-size:0.75rem">/ 100</div>
+  </div>
+  <div class="score-card">
+    <div class="score-label">Conversion Score</div>
+    <div class="score-value" style="color:{score_color(conversion_score)}">{conversion_score}</div>
+    <div style="color:#64748b;font-size:0.75rem">/ 100</div>
+  </div>
+</div>
+<div class="card">
+  <h2>Top Problems</h2>
+  <ul>{problems_html}</ul>
+</div>
+<div class="card">
+  <h2>Improvement Ideas</h2>
+  <ul>{ideas_html}</ul>
+</div>
+{workflow_html}
+<div class="footer">
+  AXIA_RUNTIME_CLASS = AUTONOMOUS_PRODUCT_GROWTH_OPERATOR | P46-P50<br>
+  自動変更禁止 — 提案のみ
+</div>
+</body>
+</html>"""
+    return HTMLResponse(content=html)
+
