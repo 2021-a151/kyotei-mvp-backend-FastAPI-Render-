@@ -7587,3 +7587,469 @@ async def p60_business_dashboard():
 </body>
 </html>"""
         return HTMLResponse(content=html)
+
+
+# ============================================================
+# P61: Lead Magnet Runtime
+# ============================================================
+import uuid as _uuid_p61
+
+_p61_leads_state = {
+    "leadMagnetIdeas": [],
+    "lastGeneration": None,
+    "leadsVersion": "P61",
+}
+
+_P61_LEAD_TEMPLATES = [
+    {"idea": "無料チェックリスト", "type": "checklist", "impact": "HIGH", "hook": "今すぐ確認できる"},
+    {"idea": "利益商品10選PDF", "type": "pdf", "impact": "HIGH", "hook": "厳選した10商品を無料公開"},
+    {"idea": "自動分析テンプレ", "type": "template", "impact": "MEDIUM", "hook": "コピーするだけで使える"},
+    {"idea": "売上改善ロードマップ", "type": "guide", "impact": "HIGH", "hook": "3ステップで売上を改善"},
+    {"idea": "競合分析ワークシート", "type": "worksheet", "impact": "MEDIUM", "hook": "差別化ポイントを可視化"},
+    {"idea": "無料ミニコース（5日間）", "type": "course", "impact": "HIGH", "hook": "5日間で基礎をマスター"},
+]
+
+def _p61_generate_leads(target_audience, goal, current_cvr):
+    ideas = []
+    for t in _P61_LEAD_TEMPLATES:
+        score = 70.0
+        if current_cvr < 2.0:
+            score += 15 if t["impact"] == "HIGH" else 5
+        if "PDF" in t["idea"] or "チェックリスト" in t["idea"]:
+            score += 10
+        ideas.append({**t, "relevanceScore": min(round(score, 1), 100.0)})
+    ideas.sort(key=lambda x: x["relevanceScore"], reverse=True)
+
+    hook_ideas = [f"{t['hook']}（{t['type']}形式）" for t in ideas[:3]]
+    download_concepts = [t["idea"] for t in ideas[:4]]
+    estimated_impact = "HIGH" if current_cvr < 2.0 else "MEDIUM"
+
+    return {
+        "leadMagnetIdeas": ideas[:4],
+        "targetAudience": target_audience,
+        "hookIdeas": hook_ideas,
+        "downloadConcepts": download_concepts,
+        "estimatedLeadImpact": estimated_impact,
+    }
+
+@router.get("/axia-leads")
+async def p61_leads_get():
+    with _p46_lock:
+        state = dict(_p61_leads_state)
+        state["autoPublishAllowed"] = False
+        state["runtimeClass"] = "AUTONOMOUS_MARKETING_REVENUE_OPERATOR"
+        return state
+
+@router.post("/axia-leads/generate")
+async def p61_leads_generate(request: Request):
+    with _p46_lock:
+        body = await request.json()
+        target_audience = body.get("targetAudience", "中小企業オーナー・個人事業主")
+        goal = body.get("goal", "無料→有料転換率の向上")
+        current_cvr = float(body.get("currentCvr", 1.8))
+
+        result = _p61_generate_leads(target_audience, goal, current_cvr)
+
+        record = {
+            "generationId": str(_uuid_p61.uuid4()),
+            **result,
+            "goal": goal,
+            "currentCvr": current_cvr,
+            "leadsVersion": "P61",
+            "autoPublishAllowed": False,
+        }
+        _p61_leads_state["leadMagnetIdeas"] = result["leadMagnetIdeas"]
+        _p61_leads_state["lastGeneration"] = record
+        return record
+
+
+# ============================================================
+# P62: CTA Optimization Runtime
+# ============================================================
+import uuid as _uuid_p62
+
+_p62_cta_state = {
+    "ctaAnalyses": [],
+    "lastAnalysis": None,
+    "ctaVersion": "P62",
+}
+
+def _p62_analyze_cta(visibility, clarity, urgency, positioning, mobile_cta):
+    score = (visibility * 0.25 + clarity * 0.25 + urgency * 0.2 + positioning * 0.15 + mobile_cta * 0.15) * 100
+    score = round(score, 1)
+
+    suggestions = []
+    better_copy = []
+    risk_level = "LOW"
+
+    if visibility < 0.7:
+        suggestions.append("CTAボタンをファーストビューに固定配置する")
+        better_copy.append("「今すぐ無料で始める」（スクロール追従型）")
+        risk_level = "MEDIUM"
+    if clarity < 0.7:
+        suggestions.append("CTAのベネフィットを明示する（例：「14日間無料」）")
+        better_copy.append("「14日間無料トライアル — クレジットカード不要」")
+    if urgency < 0.6:
+        suggestions.append("期間限定オファーや残席数を表示して緊急性を演出")
+        better_copy.append("「今月限定 — 初月50%OFF」")
+        risk_level = "MEDIUM" if risk_level == "LOW" else risk_level
+    if positioning < 0.7:
+        suggestions.append("CTAをコンテンツの自然な流れに配置する")
+    if mobile_cta < 0.7:
+        suggestions.append("モバイル向けに大きなタップ領域（44px以上）を確保する")
+        risk_level = "HIGH" if mobile_cta < 0.5 else risk_level
+
+    if not suggestions:
+        suggestions.append("現在のCTAは良好です。A/Bテストで微調整を継続してください")
+    if not better_copy:
+        better_copy.append("現在のコピーは効果的です")
+
+    high_impact = suggestions[0] if suggestions else "継続モニタリング"
+
+    return score, suggestions, better_copy, high_impact, risk_level
+
+@router.get("/axia-cta")
+async def p62_cta_get():
+    with _p46_lock:
+        state = dict(_p62_cta_state)
+        state["autoPublishAllowed"] = False
+        state["runtimeClass"] = "AUTONOMOUS_MARKETING_REVENUE_OPERATOR"
+        return state
+
+@router.post("/axia-cta/analyze")
+async def p62_cta_analyze(request: Request):
+    with _p46_lock:
+        body = await request.json()
+        visibility = float(body.get("visibility", 0.7))
+        clarity = float(body.get("clarity", 0.7))
+        urgency = float(body.get("urgency", 0.5))
+        positioning = float(body.get("positioning", 0.7))
+        mobile_cta = float(body.get("mobileCTA", 0.65))
+
+        score, suggestions, better_copy, high_impact, risk_level = _p62_analyze_cta(
+            visibility, clarity, urgency, positioning, mobile_cta
+        )
+
+        record = {
+            "analysisId": str(_uuid_p62.uuid4()),
+            "visibility": visibility,
+            "clarity": clarity,
+            "urgency": urgency,
+            "positioning": positioning,
+            "mobileCTA": mobile_cta,
+            "ctaScore": score,
+            "ctaSuggestions": suggestions,
+            "betterCopy": better_copy,
+            "highImpactCTA": high_impact,
+            "riskLevel": risk_level,
+            "ctaVersion": "P62",
+            "autoPublishAllowed": False,
+        }
+        _p62_cta_state["ctaAnalyses"].append(record)
+        if len(_p62_cta_state["ctaAnalyses"]) > 20:
+            _p62_cta_state["ctaAnalyses"] = _p62_cta_state["ctaAnalyses"][-20:]
+        _p62_cta_state["lastAnalysis"] = record
+        return record
+
+
+# ============================================================
+# P63: Offer Improvement Runtime
+# ============================================================
+import uuid as _uuid_p63
+
+_p63_offer_state = {
+    "offerAnalyses": [],
+    "lastAnalysis": None,
+    "offerVersion": "P63",
+}
+
+def _p63_analyze_offer(pricing_clarity, offer_strength, comparison_strength, guarantee_visibility, subscription_understanding):
+    score = (pricing_clarity * 0.25 + offer_strength * 0.25 + comparison_strength * 0.2 +
+             guarantee_visibility * 0.15 + subscription_understanding * 0.15) * 100
+    score = round(score, 1)
+
+    suggestions = []
+    value_boost = []
+    trust_elements = []
+
+    if pricing_clarity < 0.7:
+        suggestions.append("料金プランを3列比較表で明示する（Free / Pro / Enterprise）")
+        value_boost.append("「月額○○円から」を目立つ位置に配置")
+    if offer_strength < 0.7:
+        suggestions.append("主要ベネフィットをアイコン付きで3点に絞って訴求する")
+        value_boost.append("「時間を○○時間削減」など数値化されたベネフィットを追加")
+    if comparison_strength < 0.7:
+        suggestions.append("競合比較表を追加して差別化ポイントを可視化する")
+        value_boost.append("「他社比較」セクションを追加")
+    if guarantee_visibility < 0.7:
+        suggestions.append("返金保証・無料トライアルを目立つバッジで表示する")
+        trust_elements.append("30日間返金保証バッジ")
+    if subscription_understanding < 0.7:
+        suggestions.append("解約手順をFAQで明示して不安を解消する")
+        trust_elements.append("「いつでも解約可能」の明示")
+
+    trust_elements.extend(["実績数値（利用者数・満足度）", "メディア掲載実績"])
+
+    if not suggestions:
+        suggestions.append("現在のオファーは良好です。継続的なA/Bテストを推奨します")
+    if not value_boost:
+        value_boost.append("現在のバリュープロポジションは効果的です")
+
+    return score, suggestions, value_boost, trust_elements
+
+@router.get("/axia-offer")
+async def p63_offer_get():
+    with _p46_lock:
+        state = dict(_p63_offer_state)
+        state["autoPublishAllowed"] = False
+        state["runtimeClass"] = "AUTONOMOUS_MARKETING_REVENUE_OPERATOR"
+        return state
+
+@router.post("/axia-offer/analyze")
+async def p63_offer_analyze(request: Request):
+    with _p46_lock:
+        body = await request.json()
+        pricing_clarity = float(body.get("pricingClarity", 0.7))
+        offer_strength = float(body.get("offerStrength", 0.7))
+        comparison_strength = float(body.get("comparisonStrength", 0.6))
+        guarantee_visibility = float(body.get("guaranteeVisibility", 0.5))
+        subscription_understanding = float(body.get("subscriptionUnderstanding", 0.65))
+
+        score, suggestions, value_boost, trust_elements = _p63_analyze_offer(
+            pricing_clarity, offer_strength, comparison_strength, guarantee_visibility, subscription_understanding
+        )
+
+        record = {
+            "analysisId": str(_uuid_p63.uuid4()),
+            "pricingClarity": pricing_clarity,
+            "offerStrength": offer_strength,
+            "comparisonStrength": comparison_strength,
+            "guaranteeVisibility": guarantee_visibility,
+            "subscriptionUnderstanding": subscription_understanding,
+            "offerScore": score,
+            "offerSuggestions": suggestions,
+            "valueBoostIdeas": value_boost,
+            "trustElements": trust_elements,
+            "offerVersion": "P63",
+            "autoPublishAllowed": False,
+        }
+        _p63_offer_state["offerAnalyses"].append(record)
+        if len(_p63_offer_state["offerAnalyses"]) > 20:
+            _p63_offer_state["offerAnalyses"] = _p63_offer_state["offerAnalyses"][-20:]
+        _p63_offer_state["lastAnalysis"] = record
+        return record
+
+
+# ============================================================
+# P64: Content Generation Runtime
+# ============================================================
+import uuid as _uuid_p64
+
+_p64_content_state = {
+    "contentDrafts": [],
+    "lastDraft": None,
+    "contentVersion": "P64",
+}
+
+_P64_HEADLINES = [
+    "売上を自動で分析・改善提案するAI",
+    "作業時間を70%削減。あなたのビジネスを加速するAI",
+    "データに基づいた意思決定で、競合に差をつける",
+    "14日間無料で試せる。解約はいつでも可能。",
+]
+
+_P64_CTA_COPIES = [
+    "今すぐ無料で始める",
+    "14日間無料トライアルを開始",
+    "まずは無料で試してみる",
+    "今月限定 — 初月50%OFFで始める",
+]
+
+_P64_BENEFIT_BULLETS = [
+    "売上データをリアルタイムで分析・可視化",
+    "解約リスクを早期検出して対策を提案",
+    "KPIダッシュボードで事業全体を一目で把握",
+    "AIが改善優先順位を自動でランキング",
+    "チーム全員が同じデータで意思決定できる",
+]
+
+_P64_FAQ_IDEAS = [
+    "無料トライアル後、自動で課金されますか？",
+    "解約はいつでもできますか？",
+    "データのセキュリティは大丈夫ですか？",
+    "既存のツールと連携できますか？",
+    "サポートはどのように受けられますか？",
+]
+
+@router.get("/axia-content")
+async def p64_content_get():
+    with _p46_lock:
+        state = dict(_p64_content_state)
+        state["autoPublishAllowed"] = False
+        state["runtimeClass"] = "AUTONOMOUS_MARKETING_REVENUE_OPERATOR"
+        return state
+
+@router.post("/axia-content/generate")
+async def p64_content_generate(request: Request):
+    with _p46_lock:
+        body = await request.json()
+        product_name = body.get("productName", "AXIA")
+        target = body.get("targetAudience", "中小企業オーナー")
+        tone = body.get("tone", "professional")
+        focus = body.get("focus", "conversion")
+
+        # Select content based on focus
+        headline_idx = 0 if focus == "conversion" else 2
+        cta_idx = 0 if focus == "conversion" else 1
+
+        feature_summary = f"{product_name}は{target}向けに設計された自律型AIプラットフォームです。売上分析・ユーザー健全性・解約リスク検出・事業優先順位の決定を自動化し、チームの意思決定を加速します。"
+
+        social_proof_ideas = [
+            f"「{product_name}を使って売上が30%向上しました」— 導入企業A社",
+            "利用者満足度 4.8 / 5.0（200社以上の評価）",
+            "業界メディア○○○に掲載",
+            "導入後3ヶ月でROI 250%を達成した事例",
+        ]
+
+        draft = {
+            "draftId": str(_uuid_p64.uuid4()),
+            "productName": product_name,
+            "targetAudience": target,
+            "tone": tone,
+            "focus": focus,
+            "lpHeadline": _P64_HEADLINES[headline_idx],
+            "ctaCopy": _P64_CTA_COPIES[cta_idx],
+            "benefitBullets": _P64_BENEFIT_BULLETS,
+            "featureSummary": feature_summary,
+            "socialProofIdeas": social_proof_ideas,
+            "faqIdeas": _P64_FAQ_IDEAS,
+            "isDraft": True,
+            "autoPublishAllowed": False,
+            "contentVersion": "P64",
+        }
+        _p64_content_state["contentDrafts"].append(draft)
+        if len(_p64_content_state["contentDrafts"]) > 10:
+            _p64_content_state["contentDrafts"] = _p64_content_state["contentDrafts"][-10:]
+        _p64_content_state["lastDraft"] = draft
+        return draft
+
+
+# ============================================================
+# P65: Marketing Revenue Dashboard
+# ============================================================
+@router.get("/axia-marketing")
+async def p65_marketing_dashboard():
+    with _p46_lock:
+        leads = _p61_leads_state
+        cta = _p62_cta_state
+        offer = _p63_offer_state
+        content = _p64_content_state
+
+        # Lead generation status
+        last_lead = leads.get("lastGeneration") or {}
+        lead_impact = last_lead.get("estimatedLeadImpact", "UNKNOWN")
+        lead_ideas = [i.get("idea", "") for i in leads.get("leadMagnetIdeas", [])[:3]]
+        if not lead_ideas:
+            lead_ideas = ["利益商品PDF", "CTA固定化", "比較表追加"]
+
+        # CTA strength
+        last_cta = cta.get("lastAnalysis") or {}
+        cta_score = last_cta.get("ctaScore", 78.0)
+        cta_risk = last_cta.get("riskLevel", "LOW")
+
+        # Offer quality
+        last_offer = offer.get("lastAnalysis") or {}
+        offer_score = last_offer.get("offerScore", 74.0)
+
+        # Revenue opportunities
+        rev_opp = "HIGH" if cta_score < 70 or offer_score < 70 else "MEDIUM"
+
+        # Colors
+        lead_color = {"HIGH": "#3fb950", "MEDIUM": "#d29922", "LOW": "#f85149", "UNKNOWN": "#8b949e"}.get(lead_impact, "#8b949e")
+        cta_color = "#3fb950" if cta_score >= 75 else "#d29922" if cta_score >= 60 else "#f85149"
+        offer_color = "#3fb950" if offer_score >= 75 else "#d29922" if offer_score >= 60 else "#f85149"
+        rev_color = {"HIGH": "#f85149", "MEDIUM": "#d29922", "LOW": "#3fb950"}.get(rev_opp, "#8b949e")
+
+        lead_ideas_html = "".join(f"<li>{idea}</li>" for idea in lead_ideas)
+
+        # Latest draft headline
+        last_draft = content.get("lastDraft") or {}
+        draft_headline = last_draft.get("lpHeadline", "（未生成）")
+        draft_cta = last_draft.get("ctaCopy", "（未生成）")
+
+        html = f"""<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AXIA Marketing Revenue Dashboard</title>
+<style>
+  body{{font-family:'Segoe UI',sans-serif;background:#0d1117;color:#e6edf3;margin:0;padding:24px}}
+  h1{{font-size:1.6rem;color:#58a6ff;margin-bottom:4px}}
+  .sub{{color:#8b949e;font-size:0.85rem;margin-bottom:24px}}
+  .grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:24px}}
+  .card{{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:20px}}
+  .card h3{{margin:0 0 8px;font-size:0.85rem;color:#8b949e;text-transform:uppercase;letter-spacing:.05em}}
+  .badge{{display:inline-block;padding:6px 16px;border-radius:20px;font-weight:700;font-size:1.1rem}}
+  .score{{font-size:2rem;font-weight:700}}
+  .section{{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:20px;margin-bottom:16px}}
+  .section h2{{margin:0 0 12px;font-size:1rem;color:#e6edf3}}
+  ul{{margin:0;padding-left:20px;color:#8b949e}}
+  ul li{{margin-bottom:6px;font-size:0.9rem}}
+  .draft-box{{background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:12px;margin-top:8px}}
+  .draft-label{{font-size:0.75rem;color:#8b949e;margin-bottom:4px}}
+  .draft-text{{font-size:0.9rem;color:#e6edf3}}
+  .footer{{margin-top:24px;text-align:center;font-size:0.75rem;color:#484f58}}
+  .safe-badge{{display:inline-block;background:#21262d;border:1px solid #30363d;border-radius:6px;padding:2px 10px;font-size:0.75rem;color:#8b949e;margin-top:8px}}
+</style>
+</head>
+<body>
+<h1>AXIA Marketing Revenue Dashboard</h1>
+<p class="sub">P65 Marketing OS — draft生成のみ・自動公開禁止</p>
+
+<div class="grid">
+  <div class="card">
+    <h3>Lead Generation</h3>
+    <span class="badge" style="background:{lead_color}22;color:{lead_color}">{lead_impact}</span>
+  </div>
+  <div class="card">
+    <h3>CTA Strength</h3>
+    <div class="score" style="color:{cta_color}">{cta_score:.0f}</div>
+    <div style="font-size:0.8rem;color:#8b949e">/ 100 | Risk: {cta_risk}</div>
+  </div>
+  <div class="card">
+    <h3>Offer Quality</h3>
+    <div class="score" style="color:{offer_color}">{offer_score:.0f}</div>
+    <div style="font-size:0.8rem;color:#8b949e">/ 100</div>
+  </div>
+  <div class="card">
+    <h3>Revenue Opportunities</h3>
+    <span class="badge" style="background:{rev_color}22;color:{rev_color}">{rev_opp}</span>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Top Marketing Ideas</h2>
+  <ul>{lead_ideas_html}</ul>
+</div>
+
+<div class="section">
+  <h2>Latest Content Draft</h2>
+  <div class="draft-box">
+    <div class="draft-label">LP Headline</div>
+    <div class="draft-text">{draft_headline}</div>
+  </div>
+  <div class="draft-box" style="margin-top:8px">
+    <div class="draft-label">CTA Copy</div>
+    <div class="draft-text">{draft_cta}</div>
+  </div>
+</div>
+
+<div class="safe-badge">autoPublishAllowed = false | draft生成のみ・公開には承認が必要</div>
+
+<div class="footer">
+  AXIA_RUNTIME_CLASS = AUTONOMOUS_MARKETING_REVENUE_OPERATOR | P61-P65
+</div>
+</body>
+</html>"""
+        return HTMLResponse(content=html)
