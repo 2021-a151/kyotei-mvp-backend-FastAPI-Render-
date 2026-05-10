@@ -6707,3 +6707,419 @@ li:last-child{{border-bottom:none}}
 </html>"""
     return HTMLResponse(content=html)
 
+
+
+# ============================================================
+# P51: KPI Tracking Runtime
+# ============================================================
+import uuid as _uuid_p51
+
+_p51_kpi_state = {
+    "pageViews": 0,
+    "ctaClicks": 0,
+    "conversionRate": 0.0,
+    "bounceRisk": 0.0,
+    "mobileScore": 0.0,
+    "uxScore": 0.0,
+    "workflowSuccessRate": 0.0,
+    "kpiHistory": [],
+    "trendDirection": "stable",
+    "lastUpdated": None,
+    "kpiVersion": "P51",
+}
+
+def _p51_calc_trend(history):
+    if len(history) < 2:
+        return "stable"
+    last = history[-1].get("conversionRate", 0)
+    prev = history[-2].get("conversionRate", 0)
+    if last > prev:
+        return "improving"
+    elif last < prev:
+        return "declining"
+    return "stable"
+
+@router.get("/axia-kpi")
+async def p51_kpi_get():
+    with _p46_lock:
+        state = dict(_p51_kpi_state)
+        state["autoModifyAllowed"] = False
+        state["runtimeClass"] = "AUTONOMOUS_KPI_OPTIMIZATION_OPERATOR"
+        return state
+
+@router.post("/axia-kpi/update")
+async def p51_kpi_update(request: Request):
+    with _p46_lock:
+        body = await request.json()
+        snapshot = {
+            "snapshotId": str(_uuid_p51.uuid4()),
+            "pageViews": body.get("pageViews", _p51_kpi_state["pageViews"]),
+            "ctaClicks": body.get("ctaClicks", _p51_kpi_state["ctaClicks"]),
+            "conversionRate": body.get("conversionRate", _p51_kpi_state["conversionRate"]),
+            "bounceRisk": body.get("bounceRisk", _p51_kpi_state["bounceRisk"]),
+            "mobileScore": body.get("mobileScore", _p51_kpi_state["mobileScore"]),
+            "uxScore": body.get("uxScore", _p51_kpi_state["uxScore"]),
+            "workflowSuccessRate": body.get("workflowSuccessRate", _p51_kpi_state["workflowSuccessRate"]),
+        }
+        _p51_kpi_state["pageViews"] = snapshot["pageViews"]
+        _p51_kpi_state["ctaClicks"] = snapshot["ctaClicks"]
+        _p51_kpi_state["conversionRate"] = snapshot["conversionRate"]
+        _p51_kpi_state["bounceRisk"] = snapshot["bounceRisk"]
+        _p51_kpi_state["mobileScore"] = snapshot["mobileScore"]
+        _p51_kpi_state["uxScore"] = snapshot["uxScore"]
+        _p51_kpi_state["workflowSuccessRate"] = snapshot["workflowSuccessRate"]
+        _p51_kpi_state["kpiHistory"].append(snapshot)
+        if len(_p51_kpi_state["kpiHistory"]) > 50:
+            _p51_kpi_state["kpiHistory"] = _p51_kpi_state["kpiHistory"][-50:]
+        _p51_kpi_state["trendDirection"] = _p51_calc_trend(_p51_kpi_state["kpiHistory"])
+        from datetime import datetime as _dt51
+        _p51_kpi_state["lastUpdated"] = _dt51.utcnow().isoformat() + "Z"
+        return {
+            "snapshotId": snapshot["snapshotId"],
+            "trendDirection": _p51_kpi_state["trendDirection"],
+            "lastUpdated": _p51_kpi_state["lastUpdated"],
+            "kpiVersion": "P51",
+            "autoModifyAllowed": False,
+            "currentKpi": {k: _p51_kpi_state[k] for k in [
+                "pageViews","ctaClicks","conversionRate","bounceRisk",
+                "mobileScore","uxScore","workflowSuccessRate"
+            ]},
+        }
+
+
+# ============================================================
+# P52: Optimization Suggestion Runtime
+# ============================================================
+import uuid as _uuid_p52
+
+_p52_suggestions_state = {
+    "highImpactFixes": [],
+    "quickWins": [],
+    "lowRiskImprovements": [],
+    "estimatedImpact": "",
+    "priorityScore": 0.0,
+    "lastGenerated": None,
+    "suggestionVersion": "P52",
+}
+
+def _p52_generate_suggestions(kpi_snapshot):
+    fixes = []
+    quick = []
+    low_risk = []
+    priority = 50.0
+
+    cvr = kpi_snapshot.get("conversionRate", 2.0)
+    ux = kpi_snapshot.get("uxScore", 70.0)
+    mobile = kpi_snapshot.get("mobileScore", 75.0)
+    bounce = kpi_snapshot.get("bounceRisk", 0.3)
+
+    if cvr < 3.0:
+        fixes.append({"fix": "CTAを固定表示に変更", "impact": "HIGH", "risk": "LOW"})
+        priority += 20
+    if ux < 75:
+        fixes.append({"fix": "フォームを3ステップに短縮", "impact": "HIGH", "risk": "LOW"})
+        priority += 15
+    if mobile < 80:
+        quick.append({"fix": "モバイルCTAサイズを拡大", "impact": "MEDIUM", "risk": "LOW"})
+        priority += 10
+    if bounce > 0.4:
+        quick.append({"fix": "ファーストビューにキャッチコピー追加", "impact": "MEDIUM", "risk": "LOW"})
+        priority += 10
+
+    low_risk.append({"fix": "比較表を追加して差別化を明確化", "impact": "MEDIUM", "risk": "LOW"})
+    low_risk.append({"fix": "口コミ・実績数値をヒーローに移動", "impact": "MEDIUM", "risk": "LOW"})
+
+    if not fixes:
+        fixes.append({"fix": "A/Bテスト用にCTAコピーを2パターン用意", "impact": "MEDIUM", "risk": "LOW"})
+
+    gain_pct = min(int(priority - 50) + 5, 35)
+    estimated = f"+{gain_pct}% conversion improvement expected"
+    priority = min(priority, 100.0)
+    return fixes, quick, low_risk, estimated, priority
+
+@router.get("/axia-optimization-suggestions")
+async def p52_suggestions_get():
+    with _p46_lock:
+        state = dict(_p52_suggestions_state)
+        state["autoModifyAllowed"] = False
+        state["runtimeClass"] = "AUTONOMOUS_KPI_OPTIMIZATION_OPERATOR"
+        return state
+
+@router.post("/axia-optimization-suggestions/generate")
+async def p52_suggestions_generate(request: Request):
+    with _p46_lock:
+        body = await request.json()
+        kpi_snapshot = body.get("kpiSnapshot", {
+            "conversionRate": _p51_kpi_state["conversionRate"],
+            "uxScore": _p51_kpi_state["uxScore"],
+            "mobileScore": _p51_kpi_state["mobileScore"],
+            "bounceRisk": _p51_kpi_state["bounceRisk"],
+        })
+        fixes, quick, low_risk, estimated, priority = _p52_generate_suggestions(kpi_snapshot)
+        _p52_suggestions_state["highImpactFixes"] = fixes
+        _p52_suggestions_state["quickWins"] = quick
+        _p52_suggestions_state["lowRiskImprovements"] = low_risk
+        _p52_suggestions_state["estimatedImpact"] = estimated
+        _p52_suggestions_state["priorityScore"] = priority
+        from datetime import datetime as _dt52
+        _p52_suggestions_state["lastGenerated"] = _dt52.utcnow().isoformat() + "Z"
+        return {
+            "suggestionId": str(_uuid_p52.uuid4()),
+            "highImpactFixes": fixes,
+            "quickWins": quick,
+            "lowRiskImprovements": low_risk,
+            "estimatedImpact": estimated,
+            "priorityScore": priority,
+            "lastGenerated": _p52_suggestions_state["lastGenerated"],
+            "suggestionVersion": "P52",
+            "autoModifyAllowed": False,
+        }
+
+
+# ============================================================
+# P53: Experiment Comparison Runtime
+# ============================================================
+import uuid as _uuid_p53
+
+_p53_experiments_state = {
+    "experiments": [],
+    "lastComparison": None,
+    "experimentVersion": "P53",
+}
+
+def _p53_compare(before, after):
+    b_cvr = before.get("conversionRate", 2.0)
+    a_cvr = after.get("conversionRate", 2.0)
+    b_ux = before.get("uxScore", 70.0)
+    a_ux = after.get("uxScore", 70.0)
+    b_risk = before.get("riskScore", 0.5)
+    a_risk = after.get("riskScore", 0.4)
+
+    expected_impact = f"+{round((a_cvr - b_cvr) / max(b_cvr, 0.01) * 100, 1)}% CVR"
+    risk_diff = round(a_risk - b_risk, 3)
+    ux_diff = round(a_ux - b_ux, 1)
+
+    if a_cvr > b_cvr and a_risk <= b_risk:
+        recommended = "after"
+        summary = "After版がCVR向上かつリスク同等以下のため推奨"
+    elif a_cvr > b_cvr and a_risk > b_risk:
+        recommended = "after_with_caution"
+        summary = "After版がCVR向上だがリスク増加あり。承認後に適用推奨"
+    else:
+        recommended = "before"
+        summary = "Before版が現時点では安定。After版の改善が必要"
+
+    return {
+        "expectedImpact": expected_impact,
+        "riskDifference": risk_diff,
+        "uxDifference": ux_diff,
+        "recommendedVersion": recommended,
+        "comparisonSummary": summary,
+    }
+
+@router.get("/axia-experiments")
+async def p53_experiments_get():
+    with _p46_lock:
+        state = dict(_p53_experiments_state)
+        state["autoModifyAllowed"] = False
+        state["runtimeClass"] = "AUTONOMOUS_KPI_OPTIMIZATION_OPERATOR"
+        return state
+
+@router.post("/axia-experiments/compare")
+async def p53_experiments_compare(request: Request):
+    with _p46_lock:
+        body = await request.json()
+        before = body.get("before", {"conversionRate": 2.0, "uxScore": 70.0, "riskScore": 0.5})
+        after = body.get("after", {"conversionRate": 2.5, "uxScore": 75.0, "riskScore": 0.4})
+        result = _p53_compare(before, after)
+        exp_id = str(_uuid_p53.uuid4())
+        record = {
+            "experimentId": exp_id,
+            "before": before,
+            "after": after,
+            **result,
+            "experimentVersion": "P53",
+            "autoModifyAllowed": False,
+        }
+        _p53_experiments_state["experiments"].append(record)
+        if len(_p53_experiments_state["experiments"]) > 20:
+            _p53_experiments_state["experiments"] = _p53_experiments_state["experiments"][-20:]
+        _p53_experiments_state["lastComparison"] = record
+        return record
+
+
+# ============================================================
+# P54: ROI Analysis Runtime
+# ============================================================
+import uuid as _uuid_p54
+
+_p54_roi_state = {
+    "roiAnalyses": [],
+    "lastAnalysis": None,
+    "roiVersion": "P54",
+}
+
+def _p54_calc_roi(estimated_gain, impl_cost, risk_cost, time_to_impact):
+    net_gain = estimated_gain - impl_cost - risk_cost
+    roi_score = round((net_gain / max(impl_cost + risk_cost, 1)) * 100, 1)
+    if roi_score >= 150:
+        priority = "HIGH"
+        summary = f"ROI {roi_score}%: 高収益改善。優先実施を推奨"
+    elif roi_score >= 80:
+        priority = "MEDIUM"
+        summary = f"ROI {roi_score}%: 中程度の収益改善。計画的に実施"
+    else:
+        priority = "LOW"
+        summary = f"ROI {roi_score}%: 低収益改善。他施策を優先検討"
+    return roi_score, priority, summary
+
+@router.get("/axia-roi")
+async def p54_roi_get():
+    with _p46_lock:
+        state = dict(_p54_roi_state)
+        state["autoModifyAllowed"] = False
+        state["runtimeClass"] = "AUTONOMOUS_KPI_OPTIMIZATION_OPERATOR"
+        return state
+
+@router.post("/axia-roi/analyze")
+async def p54_roi_analyze(request: Request):
+    with _p46_lock:
+        body = await request.json()
+        estimated_gain = float(body.get("estimatedGain", 500000))
+        impl_cost = float(body.get("implementationCost", 100000))
+        risk_cost = float(body.get("riskCost", 50000))
+        time_to_impact = body.get("timeToImpact", "2週間")
+        roi_score, priority, summary = _p54_calc_roi(estimated_gain, impl_cost, risk_cost, time_to_impact)
+        analysis_id = str(_uuid_p54.uuid4())
+        recs = []
+        if roi_score >= 150:
+            recs.append("即時実施: 高ROI施策を最優先で展開")
+        elif roi_score >= 80:
+            recs.append("計画実施: スプリント内でのリソース確保を推奨")
+        else:
+            recs.append("再評価: コスト削減またはインパクト拡大の余地を検討")
+        recs.append("承認フロー: 実施前に責任者レビューを実施")
+        record = {
+            "analysisId": analysis_id,
+            "estimatedGain": estimated_gain,
+            "implementationCost": impl_cost,
+            "riskCost": risk_cost,
+            "timeToImpact": time_to_impact,
+            "roiScore": roi_score,
+            "roiPriority": priority,
+            "roiSummary": summary,
+            "priorityRecommendations": recs,
+            "roiVersion": "P54",
+            "autoModifyAllowed": False,
+        }
+        _p54_roi_state["roiAnalyses"].append(record)
+        if len(_p54_roi_state["roiAnalyses"]) > 20:
+            _p54_roi_state["roiAnalyses"] = _p54_roi_state["roiAnalyses"][-20:]
+        _p54_roi_state["lastAnalysis"] = record
+        return record
+
+
+# ============================================================
+# P55: Human Optimization Dashboard
+# ============================================================
+@router.get("/axia-optimization")
+async def p55_optimization_dashboard():
+    with _p46_lock:
+        kpi = _p51_kpi_state
+        suggestions = _p52_suggestions_state
+        roi = _p54_roi_state.get("lastAnalysis") or {}
+
+        cvr = kpi.get("conversionRate", 2.4)
+        ux = kpi.get("uxScore", 72.0)
+        mobile = kpi.get("mobileScore", 81.0)
+        trend = kpi.get("trendDirection", "stable")
+
+        top_opts = []
+        for fix in suggestions.get("highImpactFixes", [])[:2]:
+            top_opts.append(fix.get("fix", ""))
+        for qw in suggestions.get("quickWins", [])[:1]:
+            top_opts.append(qw.get("fix", ""))
+        if not top_opts:
+            top_opts = ["CTA固定表示", "フォーム短縮", "比較表追加"]
+
+        estimated_impact = suggestions.get("estimatedImpact", "+18% conversion")
+        roi_priority = roi.get("roiPriority", "HIGH") if roi else "HIGH"
+
+        trend_color = "#27ae60" if trend == "improving" else ("#e74c3c" if trend == "declining" else "#f39c12")
+        trend_label = {"improving": "改善中", "declining": "要注意", "stable": "安定"}.get(trend, "安定")
+
+        top_opts_html = "".join(f"<li>{o}</li>" for o in top_opts)
+
+        html = f"""<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AXIA Optimization Dashboard</title>
+<style>
+  body{{font-family:'Segoe UI',sans-serif;background:#0d1117;color:#e6edf3;margin:0;padding:24px}}
+  h1{{font-size:1.6rem;color:#58a6ff;margin-bottom:4px}}
+  .sub{{color:#8b949e;font-size:0.85rem;margin-bottom:24px}}
+  .grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:24px}}
+  .card{{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:20px}}
+  .card h3{{margin:0 0 8px;font-size:0.85rem;color:#8b949e;text-transform:uppercase;letter-spacing:.05em}}
+  .score{{font-size:2.2rem;font-weight:700;color:#58a6ff}}
+  .score.green{{color:#3fb950}}
+  .score.yellow{{color:#d29922}}
+  .score.red{{color:#f85149}}
+  .trend{{display:inline-block;padding:2px 8px;border-radius:12px;font-size:0.75rem;font-weight:600;background:{trend_color}22;color:{trend_color};margin-top:4px}}
+  .section{{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:20px;margin-bottom:16px}}
+  .section h2{{margin:0 0 12px;font-size:1rem;color:#e6edf3}}
+  ul{{margin:0;padding-left:20px;color:#8b949e}}
+  ul li{{margin-bottom:6px;font-size:0.9rem}}
+  .impact{{font-size:1.5rem;font-weight:700;color:#3fb950}}
+  .roi-badge{{display:inline-block;padding:4px 14px;border-radius:20px;font-weight:700;font-size:0.9rem;
+    background:{'#3fb95022' if roi_priority=='HIGH' else '#d2992222'};
+    color:{'#3fb950' if roi_priority=='HIGH' else '#d29922'}}}
+  .footer{{margin-top:24px;text-align:center;font-size:0.75rem;color:#484f58}}
+  .safe-badge{{display:inline-block;background:#21262d;border:1px solid #30363d;border-radius:6px;padding:2px 10px;font-size:0.75rem;color:#8b949e;margin-top:8px}}
+</style>
+</head>
+<body>
+<h1>AXIA Optimization Dashboard</h1>
+<p class="sub">P55 Human Optimization OS — 提案のみ・自動変更禁止</p>
+
+<div class="grid">
+  <div class="card">
+    <h3>CVR</h3>
+    <div class="score {'green' if cvr>=3.0 else 'yellow' if cvr>=2.0 else 'red'}">{cvr:.1f}%</div>
+    <span class="trend">{trend_label}</span>
+  </div>
+  <div class="card">
+    <h3>UX Score</h3>
+    <div class="score {'green' if ux>=80 else 'yellow' if ux>=65 else 'red'}">{ux:.0f}</div>
+  </div>
+  <div class="card">
+    <h3>Mobile Score</h3>
+    <div class="score {'green' if mobile>=85 else 'yellow' if mobile>=70 else 'red'}">{mobile:.0f}</div>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Top Optimization</h2>
+  <ul>{top_opts_html}</ul>
+</div>
+
+<div class="section">
+  <h2>Expected Impact</h2>
+  <div class="impact">{estimated_impact}</div>
+</div>
+
+<div class="section">
+  <h2>ROI Priority</h2>
+  <span class="roi-badge">{roi_priority}</span>
+</div>
+
+<div class="safe-badge">autoModifyAllowed = false | 提案のみ・実施には承認が必要</div>
+
+<div class="footer">
+  AXIA_RUNTIME_CLASS = AUTONOMOUS_KPI_OPTIMIZATION_OPERATOR | P51-P55
+</div>
+</body>
+</html>"""
+        return HTMLResponse(content=html)
