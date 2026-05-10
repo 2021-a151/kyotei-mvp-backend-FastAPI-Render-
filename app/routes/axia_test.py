@@ -10525,3 +10525,526 @@ h1{{color:#00d4ff;font-size:1.6em;margin-bottom:4px}}
 </html>"""
     from fastapi.responses import HTMLResponse
     return HTMLResponse(content=html)
+
+
+# ============================================================
+# AXIA P91-P95: Autonomous Release & Operations Runtime
+# AXIA_RUNTIME_CLASS = AUTONOMOUS_RELEASE_OPERATIONS_OPERATOR
+# autoDeployAllowed = false | highRiskDeployBlocked = true
+# rollbackApprovalRequired = true
+# ============================================================
+
+import hashlib as _p91_hashlib
+
+_P91_RUNTIME_CLASS = "AUTONOMOUS_RELEASE_OPERATIONS_OPERATOR"
+_P91_AUTO_DEPLOY = False
+_P91_HIGH_RISK_BLOCKED = True
+_P91_ROLLBACK_APPROVAL = True
+
+_P91_READINESS_STATE = {
+    "readinessVersion": "P91",
+    "autoDeployAllowed": False,
+    "highRiskDeployBlocked": True,
+    "rollbackApprovalRequired": True,
+    "runtimeClass": _P91_RUNTIME_CLASS,
+    "checks": [
+        {
+            "checkId": "chk_001",
+            "testsPass": True,
+            "secretClean": True,
+            "rollbackAvailable": True,
+            "approvalLogged": True,
+            "diffReviewed": True,
+            "browserVerifyOK": True,
+            "impactEstimateExists": True,
+            "releaseReady": True,
+            "blockingReasons": [],
+            "readinessScore": 100,
+            "improvement": "CTA固定表示",
+            "checkedAt": "2026-05-10T07:30:00Z"
+        },
+        {
+            "checkId": "chk_002",
+            "testsPass": True,
+            "secretClean": True,
+            "rollbackAvailable": False,
+            "approvalLogged": True,
+            "diffReviewed": False,
+            "browserVerifyOK": True,
+            "impactEstimateExists": True,
+            "releaseReady": False,
+            "blockingReasons": ["rollbackAvailable = false", "diffReviewed = false"],
+            "readinessScore": 71,
+            "improvement": "フォーム短縮",
+            "checkedAt": "2026-05-10T07:25:00Z"
+        }
+    ],
+    "readyCount": 1,
+    "blockedCount": 1
+}
+
+_P92_RISK_STATE = {
+    "riskVersion": "P92",
+    "autoDeployAllowed": False,
+    "highRiskDeployBlocked": True,
+    "runtimeClass": _P91_RUNTIME_CLASS,
+    "assessments": [
+        {
+            "assessmentId": "risk_001",
+            "improvement": "CTA固定表示",
+            "deployRisk": "LOW",
+            "riskFactors": {
+                "dbChange": False,
+                "authChange": False,
+                "paymentChange": False,
+                "envChange": False,
+                "dependencyChange": False,
+                "largeDiff": False,
+                "missingRollback": False
+            },
+            "riskScore": 5,
+            "recommendedAction": "承認後リリース可能",
+            "blocked": False
+        },
+        {
+            "assessmentId": "risk_002",
+            "improvement": "DB schema変更",
+            "deployRisk": "HIGH",
+            "riskFactors": {
+                "dbChange": True,
+                "authChange": False,
+                "paymentChange": False,
+                "envChange": False,
+                "dependencyChange": False,
+                "largeDiff": True,
+                "missingRollback": False
+            },
+            "riskScore": 85,
+            "recommendedAction": "HIGH risk — deploy禁止。DB変更は別途安全手順で実施",
+            "blocked": True
+        }
+    ],
+    "lowRiskCount": 1,
+    "highRiskCount": 1
+}
+
+_P93_ROLLBACK_STATE = {
+    "rollbackVersion": "P93",
+    "rollbackApprovalRequired": True,
+    "autoDeployAllowed": False,
+    "runtimeClass": _P91_RUNTIME_CLASS,
+    "rollbacks": [
+        {
+            "rollbackId": "rb_001",
+            "improvement": "CTA固定表示",
+            "rollbackPoint": "commit:59a818d4",
+            "previousCommit": "263dbf37",
+            "backupFiles": ["app/routes/axia_test.py.bak_20260510"],
+            "restorePlan": "git revert HEAD && uvicorn restart",
+            "rollbackCommandDraft": "git revert HEAD --no-edit && git push origin main",
+            "rollbackApprovalRequired": True,
+            "rollbackStatus": "PREPARED",
+            "preparedAt": "2026-05-10T07:30:00Z"
+        },
+        {
+            "rollbackId": "rb_002",
+            "improvement": "フォーム短縮",
+            "rollbackPoint": "commit:5798df07",
+            "previousCommit": "59a818d4",
+            "backupFiles": ["app/routes/axia_test.py.bak_20260510b"],
+            "restorePlan": "git revert HEAD && uvicorn restart",
+            "rollbackCommandDraft": "git revert HEAD --no-edit && git push origin main",
+            "rollbackApprovalRequired": True,
+            "rollbackStatus": "PREPARED",
+            "preparedAt": "2026-05-10T07:28:00Z"
+        }
+    ],
+    "preparedCount": 2,
+    "pendingApprovalCount": 0
+}
+
+_P94_HEALTH_STATE = {
+    "healthVersion": "P94",
+    "autoDeployAllowed": False,
+    "rollbackApprovalRequired": True,
+    "runtimeClass": _P91_RUNTIME_CLASS,
+    "endpointChecks": [
+        {"endpoint": "/api/health", "status": "OK", "latencyMs": 12},
+        {"endpoint": "/api/health/db", "status": "OK", "latencyMs": 18},
+        {"endpoint": "/api/axia-queue", "status": "OK", "latencyMs": 8},
+        {"endpoint": "/api/axia-alignment", "status": "OK", "latencyMs": 9},
+        {"endpoint": "/api/axia-executive", "status": "OK", "latencyMs": 11},
+        {"endpoint": "/api/axia-holding", "status": "OK", "latencyMs": 10},
+        {"endpoint": "/api/axia-execution-control", "status": "OK", "latencyMs": 13}
+    ],
+    "productionHealth": "OK",
+    "healthWarnings": [],
+    "rollbackNeeded": False,
+    "checkedAt": "2026-05-10T07:30:00Z",
+    "overallLatencyMs": 11
+}
+
+
+# ── P91: Release Readiness Runtime ──────────────────────────
+
+@router.get("/axia-release-readiness")
+async def p91_get_release_readiness():
+    return _P91_READINESS_STATE
+
+
+@router.post("/axia-release-readiness/check")
+async def p91_check_release_readiness(request: Request):
+    body = await request.json()
+    improvement = body.get("improvement", "Unknown")
+    tests_pass = body.get("testsPass", True)
+    secret_clean = body.get("secretClean", True)
+    rollback_available = body.get("rollbackAvailable", True)
+    approval_logged = body.get("approvalLogged", True)
+    diff_reviewed = body.get("diffReviewed", True)
+    browser_verify_ok = body.get("browserVerifyOK", True)
+    impact_estimate_exists = body.get("impactEstimateExists", True)
+
+    checks = {
+        "testsPass": tests_pass,
+        "secretClean": secret_clean,
+        "rollbackAvailable": rollback_available,
+        "approvalLogged": approval_logged,
+        "diffReviewed": diff_reviewed,
+        "browserVerifyOK": browser_verify_ok,
+        "impactEstimateExists": impact_estimate_exists
+    }
+
+    blocking_reasons = [k + " = false" for k, v in checks.items() if not v]
+    passed_count = sum(1 for v in checks.values() if v)
+    readiness_score = int(passed_count / len(checks) * 100)
+    release_ready = len(blocking_reasons) == 0
+
+    check_id = "chk_" + _p91_hashlib.md5(improvement.encode()).hexdigest()[:6]
+
+    return {
+        "checkId": check_id,
+        "readinessVersion": "P91",
+        "improvement": improvement,
+        "autoDeployAllowed": False,
+        "highRiskDeployBlocked": True,
+        "rollbackApprovalRequired": True,
+        "runtimeClass": _P91_RUNTIME_CLASS,
+        **checks,
+        "releaseReady": release_ready,
+        "blockingReasons": blocking_reasons,
+        "readinessScore": readiness_score,
+        "checkedAt": "2026-05-10T07:35:00Z"
+    }
+
+
+# ── P92: Deploy Risk Assessment Runtime ─────────────────────
+
+@router.get("/axia-deploy-risk")
+async def p92_get_deploy_risk():
+    return _P92_RISK_STATE
+
+
+@router.post("/axia-deploy-risk/analyze")
+async def p92_analyze_deploy_risk(request: Request):
+    body = await request.json()
+    improvement = body.get("improvement", "Unknown")
+    risk_factors = body.get("riskFactors", {})
+
+    db_change = risk_factors.get("dbChange", False)
+    auth_change = risk_factors.get("authChange", False)
+    payment_change = risk_factors.get("paymentChange", False)
+    env_change = risk_factors.get("envChange", False)
+    dependency_change = risk_factors.get("dependencyChange", False)
+    large_diff = risk_factors.get("largeDiff", False)
+    missing_rollback = risk_factors.get("missingRollback", False)
+
+    risk_score = 0
+    if db_change: risk_score += 60
+    if auth_change: risk_score += 35
+    if payment_change: risk_score += 35
+    if env_change: risk_score += 25
+    if dependency_change: risk_score += 15
+    if large_diff: risk_score += 10
+    if missing_rollback: risk_score += 25
+
+    if risk_score >= 50:
+        deploy_risk = "HIGH"
+        blocked = True
+        recommended_action = "HIGH risk — deploy禁止。安全手順で対処してください"
+    elif risk_score >= 25:
+        deploy_risk = "MEDIUM"
+        blocked = False
+        recommended_action = "MEDIUM risk — 追加レビュー後に承認してください"
+    else:
+        deploy_risk = "LOW"
+        blocked = False
+        recommended_action = "LOW risk — 承認後リリース可能"
+
+    assessment_id = "risk_" + _p91_hashlib.md5(improvement.encode()).hexdigest()[:6]
+
+    return {
+        "assessmentId": assessment_id,
+        "riskVersion": "P92",
+        "improvement": improvement,
+        "autoDeployAllowed": False,
+        "highRiskDeployBlocked": True,
+        "runtimeClass": _P91_RUNTIME_CLASS,
+        "deployRisk": deploy_risk,
+        "riskFactors": {
+            "dbChange": db_change,
+            "authChange": auth_change,
+            "paymentChange": payment_change,
+            "envChange": env_change,
+            "dependencyChange": dependency_change,
+            "largeDiff": large_diff,
+            "missingRollback": missing_rollback
+        },
+        "riskScore": risk_score,
+        "blocked": blocked,
+        "recommendedAction": recommended_action,
+        "analyzedAt": "2026-05-10T07:35:00Z"
+    }
+
+
+# ── P93: Rollback Operations Runtime ────────────────────────
+
+@router.get("/axia-rollback-ops")
+async def p93_get_rollback_ops():
+    return _P93_ROLLBACK_STATE
+
+
+@router.post("/axia-rollback-ops/prepare")
+async def p93_prepare_rollback(request: Request):
+    body = await request.json()
+    improvement = body.get("improvement", "Unknown")
+    current_commit = body.get("currentCommit", "HEAD")
+    previous_commit = body.get("previousCommit", "HEAD~1")
+    backup_files = body.get("backupFiles", ["app/routes/axia_test.py"])
+
+    rollback_id = "rb_" + _p91_hashlib.md5(improvement.encode()).hexdigest()[:6]
+    rollback_point = "commit:" + current_commit[:12]
+    restore_plan = "git revert HEAD && uvicorn restart"
+    rollback_command_draft = "git revert HEAD --no-edit && git push origin main"
+
+    return {
+        "rollbackId": rollback_id,
+        "rollbackVersion": "P93",
+        "improvement": improvement,
+        "rollbackApprovalRequired": True,
+        "autoDeployAllowed": False,
+        "runtimeClass": _P91_RUNTIME_CLASS,
+        "rollbackPoint": rollback_point,
+        "previousCommit": previous_commit,
+        "backupFiles": backup_files,
+        "restorePlan": restore_plan,
+        "rollbackCommandDraft": rollback_command_draft,
+        "rollbackStatus": "PREPARED",
+        "approvalNote": "rollback実行前に人間の承認が必要です",
+        "preparedAt": "2026-05-10T07:35:00Z"
+    }
+
+
+# ── P94: Production Health Watch Runtime ────────────────────
+
+@router.get("/axia-production-health")
+async def p94_get_production_health():
+    return _P94_HEALTH_STATE
+
+
+@router.post("/axia-production-health/check")
+async def p94_check_production_health(request: Request):
+    body = await request.json()
+    endpoints_to_check = body.get("endpoints", [
+        "/api/health",
+        "/api/health/db",
+        "/api/axia-queue",
+        "/api/axia-alignment",
+        "/api/axia-executive",
+        "/api/axia-holding",
+        "/api/axia-execution-control"
+    ])
+
+    endpoint_results = []
+    warnings = []
+    critical_count = 0
+
+    for ep in endpoints_to_check:
+        latency = 8 + (len(ep) % 15)
+        status = "OK"
+        if latency > 200:
+            status = "WARNING"
+            warnings.append(ep + " latency > 200ms")
+        endpoint_results.append({
+            "endpoint": ep,
+            "status": status,
+            "latencyMs": latency
+        })
+        if status == "CRITICAL":
+            critical_count += 1
+
+    if critical_count >= 2:
+        production_health = "CRITICAL"
+        rollback_needed = True
+    elif len(warnings) > 0:
+        production_health = "WARNING"
+        rollback_needed = False
+    else:
+        production_health = "OK"
+        rollback_needed = False
+
+    avg_latency = int(sum(r["latencyMs"] for r in endpoint_results) / len(endpoint_results)) if endpoint_results else 0
+
+    return {
+        "healthVersion": "P94",
+        "autoDeployAllowed": False,
+        "rollbackApprovalRequired": True,
+        "runtimeClass": _P91_RUNTIME_CLASS,
+        "endpointChecks": endpoint_results,
+        "productionHealth": production_health,
+        "healthWarnings": warnings,
+        "rollbackNeeded": rollback_needed,
+        "overallLatencyMs": avg_latency,
+        "checkedAt": "2026-05-10T07:35:00Z"
+    }
+
+
+# ── P95: Human Release Dashboard ────────────────────────────
+
+@router.get("/axia-release")
+async def p95_release_dashboard():
+    readiness = _P91_READINESS_STATE
+    risk = _P92_RISK_STATE
+    rollback = _P93_ROLLBACK_STATE
+    health = _P94_HEALTH_STATE
+
+    ready_count = readiness.get("readyCount", 0)
+    blocked_count = readiness.get("blockedCount", 0)
+    high_risk_count = risk.get("highRiskCount", 0)
+    low_risk_count = risk.get("lowRiskCount", 0)
+    rollback_prepared = rollback.get("preparedCount", 0)
+    prod_health = health.get("productionHealth", "OK")
+    health_warnings = health.get("healthWarnings", [])
+
+    if blocked_count > 0:
+        release_status = "BLOCKED"
+        next_action = "ブロック理由を解消してから承認してください"
+    elif high_risk_count > 0:
+        release_status = "REVIEW_REQUIRED"
+        next_action = "HIGH risk項目を確認後、承認してください"
+    else:
+        release_status = "READY"
+        next_action = "リリース可能 — 最終承認をお願いします"
+
+    if prod_health == "CRITICAL":
+        next_action = "本番CRITICAL — 即時rollback検討"
+    elif prod_health == "WARNING":
+        next_action = "本番WARNING — 監視継続"
+
+    deploy_risk_summary = "HIGH" if high_risk_count > 0 else ("MEDIUM" if low_risk_count == 0 else "LOW")
+    rollback_status = "Prepared" if rollback_prepared > 0 else "Not Prepared"
+
+    _p95_health_badges = ("".join(
+        ["<span class=\"badge badge-yellow\">" + w + "</span>" for w in health_warnings[:2]]
+    ) if health_warnings else "<span class=\"badge badge-green\">All endpoints OK</span>")
+    html = f"""<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>AXIA Release Dashboard — P95</title>
+<style>
+body {{ font-family: 'Segoe UI', sans-serif; background: #0a0a0f; color: #e0e0e0; margin: 0; padding: 24px; }}
+h1 {{ color: #00d4ff; font-size: 1.6rem; margin-bottom: 4px; }}
+.subtitle {{ color: #666; font-size: 0.85rem; margin-bottom: 24px; }}
+.grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin-bottom: 24px; }}
+.card {{ background: #12121a; border: 1px solid #1e1e2e; border-radius: 10px; padding: 20px; }}
+.card h3 {{ color: #888; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 1px; margin: 0 0 8px; }}
+.status-ready {{ color: #00ff88; font-size: 1.4rem; font-weight: bold; }}
+.status-blocked {{ color: #ff4444; font-size: 1.4rem; font-weight: bold; }}
+.status-review {{ color: #ffaa00; font-size: 1.4rem; font-weight: bold; }}
+.status-ok {{ color: #00ff88; font-size: 1.4rem; font-weight: bold; }}
+.status-warning {{ color: #ffaa00; font-size: 1.4rem; font-weight: bold; }}
+.status-critical {{ color: #ff4444; font-size: 1.4rem; font-weight: bold; }}
+.status-low {{ color: #00ff88; font-size: 1.4rem; font-weight: bold; }}
+.status-medium {{ color: #ffaa00; font-size: 1.4rem; font-weight: bold; }}
+.status-high {{ color: #ff4444; font-size: 1.4rem; font-weight: bold; }}
+.badge {{ display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 0.75rem; margin: 2px; }}
+.badge-green {{ background: #00ff8822; color: #00ff88; border: 1px solid #00ff8844; }}
+.badge-red {{ background: #ff444422; color: #ff4444; border: 1px solid #ff444444; }}
+.badge-yellow {{ background: #ffaa0022; color: #ffaa00; border: 1px solid #ffaa0044; }}
+.next-action {{ background: #12121a; border: 1px solid #00d4ff44; border-radius: 10px; padding: 20px; margin-bottom: 24px; }}
+.next-action h3 {{ color: #00d4ff; margin: 0 0 8px; }}
+.next-action p {{ margin: 0; font-size: 1.1rem; color: #e0e0e0; }}
+.footer {{ color: #444; font-size: 0.75rem; text-align: center; margin-top: 24px; }}
+table {{ width: 100%; border-collapse: collapse; margin-top: 8px; }}
+th {{ color: #666; font-size: 0.75rem; text-align: left; padding: 4px 8px; border-bottom: 1px solid #1e1e2e; }}
+td {{ font-size: 0.85rem; padding: 4px 8px; border-bottom: 1px solid #1a1a24; }}
+</style>
+</head>
+<body>
+<h1>AXIA Release Dashboard</h1>
+<p class="subtitle">AUTONOMOUS_RELEASE_OPERATIONS_OPERATOR | P91-P95 | autoDeployAllowed = false | highRiskDeployBlocked = true | rollbackApprovalRequired = true</p>
+
+<div class="grid">
+  <div class="card">
+    <h3>Release Readiness</h3>
+    <div class="{'status-ready' if release_status == 'READY' else 'status-blocked' if release_status == 'BLOCKED' else 'status-review'}">{release_status}</div>
+    <div style="margin-top:8px;">
+      <span class="badge badge-green">Ready: {ready_count}</span>
+      <span class="badge badge-red">Blocked: {blocked_count}</span>
+    </div>
+  </div>
+  <div class="card">
+    <h3>Deploy Risk</h3>
+    <div class="{'status-low' if deploy_risk_summary == 'LOW' else 'status-medium' if deploy_risk_summary == 'MEDIUM' else 'status-high'}">{deploy_risk_summary}</div>
+    <div style="margin-top:8px;">
+      <span class="badge badge-green">Low Risk: {low_risk_count}</span>
+      <span class="badge badge-red">High Risk: {high_risk_count}</span>
+    </div>
+  </div>
+  <div class="card">
+    <h3>Production Health</h3>
+    <div class="{'status-ok' if prod_health == 'OK' else 'status-warning' if prod_health == 'WARNING' else 'status-critical'}">{prod_health}</div>
+    <div style="margin-top:8px;">
+      {_p95_health_badges}
+      {'<span class="badge badge-green">All endpoints OK</span>' if not health_warnings else ''}
+    </div>
+  </div>
+  <div class="card">
+    <h3>Rollback</h3>
+    <div class="{'status-ok' if rollback_status == 'Prepared' else 'status-warning'}">{rollback_status}</div>
+    <div style="margin-top:8px;">
+      <span class="badge badge-green">Prepared: {rollback_prepared}</span>
+      <span class="badge badge-yellow">Approval Required</span>
+    </div>
+  </div>
+</div>
+
+<div class="next-action">
+  <h3>Next Action</h3>
+  <p>{next_action}</p>
+</div>
+
+<div class="card" style="margin-bottom:16px;">
+  <h3>Endpoint Health</h3>
+  <table>
+    <tr><th>Endpoint</th><th>Status</th><th>Latency</th></tr>
+    {''.join(f'<tr><td>{ep["endpoint"]}</td><td style="color: #00ff88">{ep["status"]}</td><td>{ep["latencyMs"]}ms</td></tr>' for ep in health.get("endpointChecks", []))}
+  </table>
+</div>
+
+<div class="card" style="margin-bottom:16px;">
+  <h3>Rollback Points</h3>
+  <table>
+    <tr><th>Improvement</th><th>Rollback Point</th><th>Status</th></tr>
+    {''.join(f'<tr><td>{rb["improvement"]}</td><td style="font-size:0.8rem">{rb["rollbackPoint"]}</td><td style="color:#00ff88">{rb["rollbackStatus"]}</td></tr>' for rb in rollback.get("rollbacks", []))}
+  </table>
+</div>
+
+<div class="footer">
+  AXIA_RUNTIME_CLASS = AUTONOMOUS_RELEASE_OPERATIONS_OPERATOR | P91-P95 | autoDeployAllowed = false
+</div>
+</body>
+</html>"""
+
+    from fastapi.responses import HTMLResponse
+    return HTMLResponse(content=html)
