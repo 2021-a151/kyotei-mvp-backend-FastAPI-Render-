@@ -7123,3 +7123,467 @@ async def p55_optimization_dashboard():
 </body>
 </html>"""
         return HTMLResponse(content=html)
+
+
+# ============================================================
+# P56: Revenue Intelligence Runtime
+# ============================================================
+import uuid as _uuid_p56
+
+_p56_revenue_state = {
+    "monthlyRevenue": 0.0,
+    "activeSubscribers": 0,
+    "upgradeRate": 0.0,
+    "downgradeRate": 0.0,
+    "revenueTrend": "stable",
+    "topGrowthSource": "",
+    "revenueHealth": "UNKNOWN",
+    "growthSignals": [],
+    "revenueWarnings": [],
+    "revenueHistory": [],
+    "revenueVersion": "P56",
+}
+
+def _p56_calc_health(monthly_revenue, upgrade_rate, downgrade_rate, revenue_trend):
+    if revenue_trend == "growing" and upgrade_rate > downgrade_rate:
+        return "GOOD"
+    elif revenue_trend == "declining" or downgrade_rate > upgrade_rate * 1.5:
+        return "AT_RISK"
+    return "STABLE"
+
+def _p56_calc_signals(monthly_revenue, active_subscribers, upgrade_rate, downgrade_rate, top_source):
+    signals = []
+    warnings = []
+    if upgrade_rate > 0.05:
+        signals.append(f"アップグレード率 {upgrade_rate*100:.1f}% — 有料転換が好調")
+    if active_subscribers > 100:
+        signals.append(f"アクティブ加入者 {active_subscribers}名 — 基盤が安定")
+    if top_source:
+        signals.append(f"主要成長源: {top_source}")
+    if downgrade_rate > 0.1:
+        warnings.append(f"ダウングレード率 {downgrade_rate*100:.1f}% — プラン見直し検討")
+    if monthly_revenue < 100000:
+        warnings.append("月次売上が低水準 — 無料→有料転換施策を優先")
+    return signals, warnings
+
+@router.get("/axia-revenue")
+async def p56_revenue_get():
+    with _p46_lock:
+        state = dict(_p56_revenue_state)
+        state["autoModifyAllowed"] = False
+        state["runtimeClass"] = "AUTONOMOUS_BUSINESS_OPERATIONS_OPERATOR"
+        return state
+
+@router.post("/axia-revenue/analyze")
+async def p56_revenue_analyze(request: Request):
+    with _p46_lock:
+        body = await request.json()
+        monthly_revenue = float(body.get("monthlyRevenue", 500000))
+        active_subscribers = int(body.get("activeSubscribers", 120))
+        upgrade_rate = float(body.get("upgradeRate", 0.08))
+        downgrade_rate = float(body.get("downgradeRate", 0.03))
+        revenue_trend = body.get("revenueTrend", "growing")
+        top_source = body.get("topGrowthSource", "オーガニック検索")
+
+        health = _p56_calc_health(monthly_revenue, upgrade_rate, downgrade_rate, revenue_trend)
+        signals, warnings = _p56_calc_signals(monthly_revenue, active_subscribers, upgrade_rate, downgrade_rate, top_source)
+
+        _p56_revenue_state["monthlyRevenue"] = monthly_revenue
+        _p56_revenue_state["activeSubscribers"] = active_subscribers
+        _p56_revenue_state["upgradeRate"] = upgrade_rate
+        _p56_revenue_state["downgradeRate"] = downgrade_rate
+        _p56_revenue_state["revenueTrend"] = revenue_trend
+        _p56_revenue_state["topGrowthSource"] = top_source
+        _p56_revenue_state["revenueHealth"] = health
+        _p56_revenue_state["growthSignals"] = signals
+        _p56_revenue_state["revenueWarnings"] = warnings
+
+        snapshot = {
+            "snapshotId": str(_uuid_p56.uuid4()),
+            "monthlyRevenue": monthly_revenue,
+            "activeSubscribers": active_subscribers,
+            "revenueHealth": health,
+        }
+        _p56_revenue_state["revenueHistory"].append(snapshot)
+        if len(_p56_revenue_state["revenueHistory"]) > 20:
+            _p56_revenue_state["revenueHistory"] = _p56_revenue_state["revenueHistory"][-20:]
+
+        return {
+            "analysisId": str(_uuid_p56.uuid4()),
+            "monthlyRevenue": monthly_revenue,
+            "activeSubscribers": active_subscribers,
+            "upgradeRate": upgrade_rate,
+            "downgradeRate": downgrade_rate,
+            "revenueTrend": revenue_trend,
+            "topGrowthSource": top_source,
+            "revenueHealth": health,
+            "growthSignals": signals,
+            "revenueWarnings": warnings,
+            "revenueVersion": "P56",
+            "autoModifyAllowed": False,
+        }
+
+
+# ============================================================
+# P57: User Health Runtime
+# ============================================================
+import uuid as _uuid_p57
+
+_p57_user_health_state = {
+    "healthyUsers": 0,
+    "warningUsers": 0,
+    "powerUsers": 0,
+    "lastAnalysis": None,
+    "userHealthVersion": "P57",
+}
+
+def _p57_classify_users(users):
+    healthy = 0
+    warning = 0
+    power = 0
+    for u in users:
+        eng = u.get("engagementScore", 50)
+        freq = u.get("usageFrequency", "weekly")
+        retention = u.get("retentionLikelihood", 0.5)
+        support_risk = u.get("supportRisk", 0.2)
+        if eng >= 80 and freq in ["daily", "multiple_daily"] and retention >= 0.8:
+            power += 1
+        elif eng >= 50 and retention >= 0.5 and support_risk < 0.4:
+            healthy += 1
+        else:
+            warning += 1
+    return healthy, warning, power
+
+@router.get("/axia-user-health")
+async def p57_user_health_get():
+    with _p46_lock:
+        state = dict(_p57_user_health_state)
+        state["autoModifyAllowed"] = False
+        state["runtimeClass"] = "AUTONOMOUS_BUSINESS_OPERATIONS_OPERATOR"
+        return state
+
+@router.post("/axia-user-health/analyze")
+async def p57_user_health_analyze(request: Request):
+    with _p46_lock:
+        body = await request.json()
+        users = body.get("users", [
+            {"engagementScore": 85, "usageFrequency": "daily", "retentionLikelihood": 0.9, "supportRisk": 0.1},
+            {"engagementScore": 60, "usageFrequency": "weekly", "retentionLikelihood": 0.65, "supportRisk": 0.25},
+            {"engagementScore": 30, "usageFrequency": "monthly", "retentionLikelihood": 0.3, "supportRisk": 0.6},
+        ])
+        healthy, warning, power = _p57_classify_users(users)
+        total = len(users)
+        avg_eng = sum(u.get("engagementScore", 50) for u in users) / max(total, 1)
+        avg_retention = sum(u.get("retentionLikelihood", 0.5) for u in users) / max(total, 1)
+
+        _p57_user_health_state["healthyUsers"] = healthy
+        _p57_user_health_state["warningUsers"] = warning
+        _p57_user_health_state["powerUsers"] = power
+
+        result = {
+            "analysisId": str(_uuid_p57.uuid4()),
+            "totalUsers": total,
+            "healthyUsers": healthy,
+            "warningUsers": warning,
+            "powerUsers": power,
+            "avgEngagementScore": round(avg_eng, 1),
+            "avgRetentionLikelihood": round(avg_retention, 3),
+            "featureUsageSummary": f"{power}名がパワーユーザー、{warning}名が要注意",
+            "userHealthVersion": "P57",
+            "autoModifyAllowed": False,
+        }
+        _p57_user_health_state["lastAnalysis"] = result
+        return result
+
+
+# ============================================================
+# P58: Churn Risk Runtime
+# ============================================================
+import uuid as _uuid_p58
+
+_p58_churn_state = {
+    "churnAnalyses": [],
+    "lastAnalysis": None,
+    "churnVersion": "P58",
+}
+
+def _p58_calc_churn(usage_drop, inactive_days, failed_conversion, negative_signals, support_issues):
+    score = 0.0
+    reasons = []
+    ideas = []
+
+    if usage_drop > 0.3:
+        score += 30
+        reasons.append(f"利用頻度が {usage_drop*100:.0f}% 低下")
+        ideas.append("パーソナライズされたリエンゲージメントメールを送付（承認後）")
+    if inactive_days > 14:
+        score += 25
+        reasons.append(f"{inactive_days}日間未ログイン")
+        ideas.append("ウィンバックキャンペーンの実施を検討")
+    if failed_conversion:
+        score += 20
+        reasons.append("有料転換に失敗")
+        ideas.append("無料トライアル延長オファーを検討（承認後）")
+    if negative_signals > 2:
+        score += 15
+        reasons.append(f"ネガティブシグナル {negative_signals}件")
+        ideas.append("CSチームによる個別フォローを推奨")
+    if support_issues > 1:
+        score += 10
+        reasons.append(f"サポート問い合わせ {support_issues}件")
+        ideas.append("プロダクト改善でサポート負荷を軽減")
+
+    score = min(score, 100.0)
+    if score >= 70:
+        risk_level = "HIGH"
+    elif score >= 40:
+        risk_level = "MEDIUM"
+    else:
+        risk_level = "LOW"
+
+    if not reasons:
+        reasons.append("現時点で解約リスクシグナルなし")
+    if not ideas:
+        ideas.append("継続的なエンゲージメント維持を推奨")
+
+    return score, risk_level, reasons, ideas
+
+@router.get("/axia-churn")
+async def p58_churn_get():
+    with _p46_lock:
+        state = dict(_p58_churn_state)
+        state["autoModifyAllowed"] = False
+        state["runtimeClass"] = "AUTONOMOUS_BUSINESS_OPERATIONS_OPERATOR"
+        return state
+
+@router.post("/axia-churn/analyze")
+async def p58_churn_analyze(request: Request):
+    with _p46_lock:
+        body = await request.json()
+        usage_drop = float(body.get("usageDrop", 0.0))
+        inactive_days = int(body.get("inactiveDays", 0))
+        failed_conversion = bool(body.get("failedConversion", False))
+        negative_signals = int(body.get("negativeSignals", 0))
+        support_issues = int(body.get("supportIssues", 0))
+
+        score, risk_level, reasons, ideas = _p58_calc_churn(
+            usage_drop, inactive_days, failed_conversion, negative_signals, support_issues
+        )
+
+        record = {
+            "analysisId": str(_uuid_p58.uuid4()),
+            "usageDrop": usage_drop,
+            "inactiveDays": inactive_days,
+            "failedConversion": failed_conversion,
+            "negativeSignals": negative_signals,
+            "supportIssues": support_issues,
+            "churnRiskScore": score,
+            "churnRiskLevel": risk_level,
+            "riskReasons": reasons,
+            "recoveryIdeas": ideas,
+            "churnVersion": "P58",
+            "autoModifyAllowed": False,
+        }
+        _p58_churn_state["churnAnalyses"].append(record)
+        if len(_p58_churn_state["churnAnalyses"]) > 20:
+            _p58_churn_state["churnAnalyses"] = _p58_churn_state["churnAnalyses"][-20:]
+        _p58_churn_state["lastAnalysis"] = record
+        return record
+
+
+# ============================================================
+# P59: Business Priority Runtime
+# ============================================================
+import uuid as _uuid_p59
+
+_p59_priority_state = {
+    "topBusinessPriorities": [],
+    "quickRevenueWins": [],
+    "highRiskAreas": [],
+    "lastCalculation": None,
+    "priorityVersion": "P59",
+}
+
+def _p59_score_priority(impact, risk, impl_cost, time_to_value, urgency):
+    # Higher impact, lower risk/cost/time = higher priority
+    score = (impact * 0.4) + ((1 - risk) * 0.2) + ((1 - impl_cost) * 0.2) + ((1 - time_to_value) * 0.1) + (urgency * 0.1)
+    return round(score * 100, 1)
+
+@router.get("/axia-business-priority")
+async def p59_priority_get():
+    with _p46_lock:
+        state = dict(_p59_priority_state)
+        state["autoModifyAllowed"] = False
+        state["runtimeClass"] = "AUTONOMOUS_BUSINESS_OPERATIONS_OPERATOR"
+        return state
+
+@router.post("/axia-business-priority/calculate")
+async def p59_priority_calculate(request: Request):
+    with _p46_lock:
+        body = await request.json()
+        initiatives = body.get("initiatives", [
+            {"name": "無料→有料導線改善", "impact": 0.9, "risk": 0.2, "implementationCost": 0.3, "timeToValue": 0.2, "businessUrgency": 0.9},
+            {"name": "継続率改善施策", "impact": 0.8, "risk": 0.3, "implementationCost": 0.4, "timeToValue": 0.4, "businessUrgency": 0.7},
+            {"name": "モバイルCV改善", "impact": 0.7, "risk": 0.2, "implementationCost": 0.5, "timeToValue": 0.3, "businessUrgency": 0.6},
+            {"name": "CTA固定表示", "impact": 0.6, "risk": 0.1, "implementationCost": 0.1, "timeToValue": 0.1, "businessUrgency": 0.8},
+            {"name": "登録フォーム短縮", "impact": 0.65, "risk": 0.15, "implementationCost": 0.2, "timeToValue": 0.15, "businessUrgency": 0.7},
+        ])
+
+        scored = []
+        for ini in initiatives:
+            score = _p59_score_priority(
+                ini.get("impact", 0.5),
+                ini.get("risk", 0.5),
+                ini.get("implementationCost", 0.5),
+                ini.get("timeToValue", 0.5),
+                ini.get("businessUrgency", 0.5),
+            )
+            scored.append({**ini, "priorityScore": score})
+
+        scored.sort(key=lambda x: x["priorityScore"], reverse=True)
+        top_priorities = scored[:3]
+        quick_wins = [s for s in scored if s.get("implementationCost", 0.5) < 0.3 and s.get("timeToValue", 0.5) < 0.3][:3]
+        high_risk = [s for s in scored if s.get("risk", 0) > 0.5]
+
+        _p59_priority_state["topBusinessPriorities"] = top_priorities
+        _p59_priority_state["quickRevenueWins"] = quick_wins
+        _p59_priority_state["highRiskAreas"] = high_risk
+
+        result = {
+            "calculationId": str(_uuid_p59.uuid4()),
+            "topBusinessPriorities": top_priorities,
+            "quickRevenueWins": quick_wins,
+            "highRiskAreas": high_risk,
+            "totalInitiatives": len(initiatives),
+            "priorityVersion": "P59",
+            "autoModifyAllowed": False,
+        }
+        _p59_priority_state["lastCalculation"] = result
+        return result
+
+
+# ============================================================
+# P60: Human Business Operations Dashboard
+# ============================================================
+@router.get("/axia-business")
+async def p60_business_dashboard():
+    with _p46_lock:
+        rev = _p56_revenue_state
+        uh = _p57_user_health_state
+        churn_last = _p58_churn_state.get("lastAnalysis") or {}
+        prio = _p59_priority_state
+
+        revenue_health = rev.get("revenueHealth", "STABLE")
+        active_subs = rev.get("activeSubscribers", 0)
+        upgrade_rate = rev.get("upgradeRate", 0.0)
+        sub_trend = f"+{upgrade_rate*100:.0f}%" if upgrade_rate > 0 else "0%"
+
+        churn_level = churn_last.get("churnRiskLevel", "LOW")
+        churn_score = churn_last.get("churnRiskScore", 0)
+
+        top_prios = prio.get("topBusinessPriorities", [])
+        quick_wins = prio.get("quickRevenueWins", [])
+
+        if not top_prios:
+            top_prios = [
+                {"name": "無料→有料導線改善"},
+                {"name": "継続率改善"},
+                {"name": "モバイルCV改善"},
+            ]
+        if not quick_wins:
+            quick_wins = [
+                {"name": "CTA固定"},
+                {"name": "登録短縮"},
+                {"name": "比較表追加"},
+            ]
+
+        health_color = {"GOOD": "#3fb950", "STABLE": "#58a6ff", "AT_RISK": "#f85149", "UNKNOWN": "#8b949e"}.get(revenue_health, "#8b949e")
+        churn_color = {"LOW": "#3fb950", "MEDIUM": "#d29922", "HIGH": "#f85149"}.get(churn_level, "#8b949e")
+
+        top_prios_html = "".join(f"<li>{p.get('name','')}</li>" for p in top_prios[:3])
+        quick_wins_html = "".join(f"<li>{w.get('name','')}</li>" for w in quick_wins[:3])
+
+        html = f"""<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AXIA Business Operations Dashboard</title>
+<style>
+  body{{font-family:'Segoe UI',sans-serif;background:#0d1117;color:#e6edf3;margin:0;padding:24px}}
+  h1{{font-size:1.6rem;color:#58a6ff;margin-bottom:4px}}
+  .sub{{color:#8b949e;font-size:0.85rem;margin-bottom:24px}}
+  .grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:24px}}
+  .card{{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:20px}}
+  .card h3{{margin:0 0 8px;font-size:0.85rem;color:#8b949e;text-transform:uppercase;letter-spacing:.05em}}
+  .badge{{display:inline-block;padding:6px 16px;border-radius:20px;font-weight:700;font-size:1.1rem}}
+  .trend{{font-size:1.8rem;font-weight:700;color:#3fb950}}
+  .section{{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:20px;margin-bottom:16px}}
+  .section h2{{margin:0 0 12px;font-size:1rem;color:#e6edf3}}
+  ul{{margin:0;padding-left:20px;color:#8b949e}}
+  ul li{{margin-bottom:6px;font-size:0.9rem}}
+  .footer{{margin-top:24px;text-align:center;font-size:0.75rem;color:#484f58}}
+  .safe-badge{{display:inline-block;background:#21262d;border:1px solid #30363d;border-radius:6px;padding:2px 10px;font-size:0.75rem;color:#8b949e;margin-top:8px}}
+  .user-grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px}}
+  .user-stat{{text-align:center;padding:10px;background:#0d1117;border-radius:8px}}
+  .user-stat .num{{font-size:1.5rem;font-weight:700}}
+  .user-stat .lbl{{font-size:0.75rem;color:#8b949e}}
+</style>
+</head>
+<body>
+<h1>AXIA Business Operations Dashboard</h1>
+<p class="sub">P60 Human Business OS — 提案のみ・自動変更禁止</p>
+
+<div class="grid">
+  <div class="card">
+    <h3>Revenue Health</h3>
+    <span class="badge" style="background:{health_color}22;color:{health_color}">{revenue_health}</span>
+  </div>
+  <div class="card">
+    <h3>Subscriber Trend</h3>
+    <div class="trend">{sub_trend}</div>
+    <div style="font-size:0.8rem;color:#8b949e;margin-top:4px">{active_subs}名 アクティブ</div>
+  </div>
+  <div class="card">
+    <h3>Churn Risk</h3>
+    <span class="badge" style="background:{churn_color}22;color:{churn_color}">{churn_level}</span>
+    <div style="font-size:0.8rem;color:#8b949e;margin-top:4px">スコア: {churn_score:.0f}/100</div>
+  </div>
+</div>
+
+<div class="section">
+  <h2>User Health</h2>
+  <div class="user-grid">
+    <div class="user-stat">
+      <div class="num" style="color:#3fb950">{uh.get('powerUsers',0)}</div>
+      <div class="lbl">パワーユーザー</div>
+    </div>
+    <div class="user-stat">
+      <div class="num" style="color:#58a6ff">{uh.get('healthyUsers',0)}</div>
+      <div class="lbl">健全ユーザー</div>
+    </div>
+    <div class="user-stat">
+      <div class="num" style="color:#d29922">{uh.get('warningUsers',0)}</div>
+      <div class="lbl">要注意ユーザー</div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Top Priorities</h2>
+  <ul>{top_prios_html}</ul>
+</div>
+
+<div class="section">
+  <h2>Quick Revenue Wins</h2>
+  <ul>{quick_wins_html}</ul>
+</div>
+
+<div class="safe-badge">autoModifyAllowed = false | 提案のみ・実施には承認が必要</div>
+
+<div class="footer">
+  AXIA_RUNTIME_CLASS = AUTONOMOUS_BUSINESS_OPERATIONS_OPERATOR | P56-P60
+</div>
+</body>
+</html>"""
+        return HTMLResponse(content=html)
