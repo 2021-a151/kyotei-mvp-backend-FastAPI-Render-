@@ -8978,3 +8978,508 @@ async def p75_executive_dashboard():
 </body>
 </html>"""
         return HTMLResponse(content=html)
+
+
+# ============================================================
+# P76: Multi-Business Registry Runtime
+# ============================================================
+import uuid as _uuid_p76
+
+_p76_business_registry = [
+    {
+        "businessId": "biz-001",
+        "businessName": "AXIA",
+        "businessType": "SaaS / AI Tool",
+        "status": "ACTIVE",
+        "growthScore": 0.78,
+        "revenueHealth": 0.75,
+        "riskLevel": "MEDIUM",
+        "owner": "CEO",
+        "priority": "HIGH",
+    },
+    {
+        "businessId": "biz-002",
+        "businessName": "せどりツール",
+        "businessType": "E-commerce Tool",
+        "status": "ACTIVE",
+        "growthScore": 0.85,
+        "revenueHealth": 0.82,
+        "riskLevel": "LOW",
+        "owner": "CEO",
+        "priority": "HIGH",
+    },
+    {
+        "businessId": "biz-003",
+        "businessName": "競艇AI",
+        "businessType": "AI Prediction",
+        "status": "ACTIVE",
+        "growthScore": 0.65,
+        "revenueHealth": 0.60,
+        "riskLevel": "MEDIUM",
+        "owner": "CEO",
+        "priority": "MEDIUM",
+    },
+    {
+        "businessId": "biz-004",
+        "businessName": "LP",
+        "businessType": "Landing Page",
+        "status": "ACTIVE",
+        "growthScore": 0.55,
+        "revenueHealth": 0.50,
+        "riskLevel": "HIGH",
+        "owner": "Marketing",
+        "priority": "HIGH",
+    },
+    {
+        "businessId": "biz-005",
+        "businessName": "Discord運営",
+        "businessType": "Community",
+        "status": "ACTIVE",
+        "growthScore": 0.70,
+        "revenueHealth": 0.65,
+        "riskLevel": "LOW",
+        "owner": "Community",
+        "priority": "MEDIUM",
+    },
+    {
+        "businessId": "biz-006",
+        "businessName": "Marketing",
+        "businessType": "Marketing Operations",
+        "status": "ACTIVE",
+        "growthScore": 0.72,
+        "revenueHealth": 0.68,
+        "riskLevel": "MEDIUM",
+        "owner": "Marketing",
+        "priority": "MEDIUM",
+    },
+]
+
+_p76_registry_state = {
+    "registryVersion": "P76",
+    "totalBusinesses": len(_p76_business_registry),
+}
+
+@router.get("/axia-businesses")
+async def p76_businesses_get():
+    with _p46_lock:
+        active = [b for b in _p76_business_registry if b["status"] == "ACTIVE"]
+        scores = [b["growthScore"] for b in active]
+        avg_growth = round(sum(scores) / len(scores), 3) if scores else 0
+        high_priority = [b["businessName"] for b in active if b["priority"] == "HIGH"]
+        return {
+            "businesses": _p76_business_registry,
+            "totalBusinesses": len(_p76_business_registry),
+            "activeBusinesses": len(active),
+            "averageGrowthScore": avg_growth,
+            "highPriorityBusinesses": high_priority,
+            "registryVersion": "P76",
+            "autoExecuteAllowed": False,
+            "runtimeClass": "AUTONOMOUS_HOLDING_COMPANY_OPERATOR",
+        }
+
+@router.post("/axia-businesses/register")
+async def p76_businesses_register(request: Request):
+    with _p46_lock:
+        body = await request.json()
+        new_biz = {
+            "businessId": str(_uuid_p76.uuid4()),
+            "businessName": body.get("businessName", "Unknown"),
+            "businessType": body.get("businessType", "General"),
+            "status": body.get("status", "ACTIVE"),
+            "growthScore": float(body.get("growthScore", 0.5)),
+            "revenueHealth": float(body.get("revenueHealth", 0.5)),
+            "riskLevel": body.get("riskLevel", "MEDIUM"),
+            "owner": body.get("owner", "CEO"),
+            "priority": body.get("priority", "MEDIUM"),
+        }
+        _p76_business_registry.append(new_biz)
+        _p76_registry_state["totalBusinesses"] = len(_p76_business_registry)
+        return {
+            "registered": True,
+            "business": new_biz,
+            "totalBusinesses": len(_p76_business_registry),
+            "registryVersion": "P76",
+            "autoExecuteAllowed": False,
+        }
+
+
+# ============================================================
+# P77: Cross-Business Intelligence Runtime
+# ============================================================
+import uuid as _uuid_p77
+
+_p77_cross_biz_state = {
+    "crossVersion": "P77",
+    "lastAnalysis": None,
+}
+
+@router.get("/axia-cross-business")
+async def p77_cross_business_get():
+    with _p46_lock:
+        return {
+            "crossVersion": "P77",
+            "availableAnalyses": ["shared_risks", "shared_opportunities", "resource_overlap", "growth_synergy", "workflow_dependency"],
+            "lastAnalysis": _p77_cross_biz_state.get("lastAnalysis"),
+            "autoExecuteAllowed": False,
+            "runtimeClass": "AUTONOMOUS_HOLDING_COMPANY_OPERATOR",
+        }
+
+@router.post("/axia-cross-business/analyze")
+async def p77_cross_business_analyze(request: Request):
+    with _p46_lock:
+        body = await request.json()
+        focus = body.get("focus", "all")
+
+        active_biz = [b for b in _p76_business_registry if b["status"] == "ACTIVE"]
+        high_risk = [b["businessName"] for b in active_biz if b["riskLevel"] == "HIGH"]
+        low_growth = [b["businessName"] for b in active_biz if b["growthScore"] < 0.6]
+
+        cross_business_insights = [
+            {
+                "pair": "AXIA ↔ せどりツール",
+                "insight": "両事業でユーザーが重複している可能性が高い。クロスセル施策でLTV向上が見込める。",
+                "opportunity": "バンドル提供・共通LP",
+            },
+            {
+                "pair": "LP ↔ Marketing",
+                "insight": "LPのCVR低下がMarketing ROIを直接圧迫している。LP改善が最優先。",
+                "opportunity": "LP A/Bテスト + 広告メッセージ統一",
+            },
+            {
+                "pair": "Discord運営 ↔ AXIA",
+                "insight": "Discord経由のリードがAXIAの成約率が高い傾向。Discord導線の強化が有効。",
+                "opportunity": "Discord専用オファー設計",
+            },
+            {
+                "pair": "競艇AI ↔ Marketing",
+                "insight": "競艇AIのユーザー獲得コストが高い。Marketing最適化でCAC削減余地がある。",
+                "opportunity": "ターゲティング精度向上",
+            },
+        ]
+
+        synergy_ideas = [
+            "AXIA + せどりツールのバンドル販売（月額割引）",
+            "Discord経由のAXIA無料トライアル導線",
+            "競艇AI × LP改善でCVR向上",
+            "Marketing統合ダッシュボードで全事業KPI一元管理",
+        ]
+
+        dependency_warnings = []
+        if high_risk:
+            dependency_warnings.append(f"高リスク事業: {', '.join(high_risk)} — 他事業への波及リスクあり")
+        if low_growth:
+            dependency_warnings.append(f"成長鈍化事業: {', '.join(low_growth)} — リソース再配分を検討")
+        if not dependency_warnings:
+            dependency_warnings.append("重大な依存リスクなし")
+
+        record = {
+            "analysisId": str(_uuid_p77.uuid4()),
+            "crossBusinessInsights": cross_business_insights,
+            "synergyIdeas": synergy_ideas,
+            "dependencyWarnings": dependency_warnings,
+            "analyzedBusinesses": len(active_biz),
+            "crossVersion": "P77",
+            "autoExecuteAllowed": False,
+        }
+        _p77_cross_biz_state["lastAnalysis"] = record
+        return record
+
+
+# ============================================================
+# P78: Resource Allocation Runtime
+# ============================================================
+import uuid as _uuid_p78
+
+_p78_allocation_state = {
+    "allocationVersion": "P78",
+    "lastAllocation": None,
+}
+
+@router.get("/axia-resource-allocation")
+async def p78_resource_get():
+    with _p46_lock:
+        return {
+            "allocationVersion": "P78",
+            "totalBusinesses": len(_p76_business_registry),
+            "lastAllocation": _p78_allocation_state.get("lastAllocation"),
+            "autoExecuteAllowed": False,
+            "runtimeClass": "AUTONOMOUS_HOLDING_COMPANY_OPERATOR",
+        }
+
+@router.post("/axia-resource-allocation/analyze")
+async def p78_resource_analyze(request: Request):
+    with _p46_lock:
+        body = await request.json()
+        constraints = body.get("constraints", {})
+
+        active_biz = [b for b in _p76_business_registry if b["status"] == "ACTIVE"]
+
+        # Score each business: ROI proxy = growthScore * revenueHealth / (riskLevel_weight)
+        risk_weights = {"LOW": 1.0, "MEDIUM": 0.8, "HIGH": 0.6}
+        priority_weights = {"HIGH": 1.2, "MEDIUM": 1.0, "LOW": 0.8}
+
+        scored = []
+        for b in active_biz:
+            roi_score = b["growthScore"] * b["revenueHealth"] * risk_weights.get(b["riskLevel"], 0.8) * priority_weights.get(b["priority"], 1.0)
+            scored.append({**b, "roiScore": round(roi_score, 3)})
+
+        scored.sort(key=lambda x: x["roiScore"], reverse=True)
+
+        resource_priority = [
+            {
+                "rank": i + 1,
+                "businessName": b["businessName"],
+                "roiScore": b["roiScore"],
+                "growthPotential": b["growthScore"],
+                "riskLevel": b["riskLevel"],
+                "recommendedAllocation": "HIGH" if i < 2 else "MEDIUM" if i < 4 else "LOW",
+            }
+            for i, b in enumerate(scored)
+        ]
+
+        recommended_focus = scored[0]["businessName"] if scored else "不明"
+        estimated_impact = f"{scored[0]['businessName']}への集中投資で成長率+{round(scored[0]['growthScore'] * 15, 1)}%が見込まれる"
+
+        record = {
+            "allocationId": str(_uuid_p78.uuid4()),
+            "recommendedFocus": recommended_focus,
+            "resourcePriority": resource_priority,
+            "estimatedImpact": estimated_impact,
+            "allocationVersion": "P78",
+            "autoExecuteAllowed": False,
+        }
+        _p78_allocation_state["lastAllocation"] = record
+        return record
+
+
+# ============================================================
+# P79: Portfolio Risk Runtime
+# ============================================================
+import uuid as _uuid_p79
+
+_p79_portfolio_state = {
+    "portfolioVersion": "P79",
+    "lastRiskAnalysis": None,
+}
+
+@router.get("/axia-portfolio-risk")
+async def p79_portfolio_risk_get():
+    with _p46_lock:
+        active_biz = [b for b in _p76_business_registry if b["status"] == "ACTIVE"]
+        high_risk_count = sum(1 for b in active_biz if b["riskLevel"] == "HIGH")
+        overall_risk = "HIGH" if high_risk_count >= 2 else "MEDIUM" if high_risk_count >= 1 else "LOW"
+        return {
+            "portfolioVersion": "P79",
+            "currentPortfolioRisk": overall_risk,
+            "totalBusinesses": len(active_biz),
+            "highRiskBusinesses": high_risk_count,
+            "lastRiskAnalysis": _p79_portfolio_state.get("lastRiskAnalysis"),
+            "autoExecuteAllowed": False,
+            "runtimeClass": "AUTONOMOUS_HOLDING_COMPANY_OPERATOR",
+        }
+
+@router.post("/axia-portfolio-risk/analyze")
+async def p79_portfolio_risk_analyze(request: Request):
+    with _p46_lock:
+        body = await request.json()
+        active_biz = [b for b in _p76_business_registry if b["status"] == "ACTIVE"]
+
+        # Risk distribution
+        risk_dist = {"HIGH": 0, "MEDIUM": 0, "LOW": 0}
+        for b in active_biz:
+            risk_dist[b.get("riskLevel", "MEDIUM")] += 1
+
+        # Detect specific risks
+        portfolio_risks = []
+        high_risk_biz = [b["businessName"] for b in active_biz if b["riskLevel"] == "HIGH"]
+        if high_risk_biz:
+            portfolio_risks.append({"risk": "高リスク事業集中", "severity": "HIGH", "businesses": high_risk_biz})
+
+        # Revenue dependency: if one business has much higher revenueHealth
+        rev_scores = [(b["businessName"], b["revenueHealth"]) for b in active_biz]
+        rev_scores.sort(key=lambda x: x[1], reverse=True)
+        if rev_scores and rev_scores[0][1] > 0.8 and len(rev_scores) > 1:
+            portfolio_risks.append({
+                "risk": "収益依存リスク",
+                "severity": "MEDIUM",
+                "detail": f"{rev_scores[0][0]}への収益集中。分散が必要。",
+            })
+
+        # Support overload: check if any business has high risk + high priority
+        overloaded = [b["businessName"] for b in active_biz if b["riskLevel"] in ("HIGH", "MEDIUM") and b["priority"] == "HIGH"]
+        if len(overloaded) >= 3:
+            portfolio_risks.append({"risk": "サポート過負荷リスク", "severity": "MEDIUM", "businesses": overloaded})
+
+        # Growth stagnation
+        stagnant = [b["businessName"] for b in active_biz if b["growthScore"] < 0.6]
+        if stagnant:
+            portfolio_risks.append({"risk": "成長停滞リスク", "severity": "LOW", "businesses": stagnant})
+
+        if not portfolio_risks:
+            portfolio_risks.append({"risk": "重大ポートフォリオリスクなし", "severity": "LOW"})
+
+        # Overall portfolio risk
+        severities = [p["severity"] for p in portfolio_risks]
+        if "HIGH" in severities:
+            portfolio_risk = "HIGH"
+        elif "MEDIUM" in severities:
+            portfolio_risk = "MEDIUM"
+        else:
+            portfolio_risk = "LOW"
+
+        # Critical dependencies
+        critical_deps = [
+            {"dependency": "LP → Marketing ROI", "risk": "LPのCVR低下がMarketing全体に波及"},
+            {"dependency": "AXIA → Discord", "risk": "Discord導線が弱まるとAXIAリード減少"},
+        ]
+
+        record = {
+            "analysisId": str(_uuid_p79.uuid4()),
+            "portfolioRisk": portfolio_risk,
+            "riskDistribution": risk_dist,
+            "portfolioRisks": portfolio_risks,
+            "criticalDependencies": critical_deps,
+            "portfolioVersion": "P79",
+            "autoExecuteAllowed": False,
+        }
+        _p79_portfolio_state["lastRiskAnalysis"] = record
+        return record
+
+
+# ============================================================
+# P80: Holding Company Dashboard
+# ============================================================
+@router.get("/axia-holding")
+async def p80_holding_dashboard():
+    with _p46_lock:
+        active_biz = [b for b in _p76_business_registry if b["status"] == "ACTIVE"]
+
+        # Total business health
+        all_scores = []
+        for b in active_biz:
+            all_scores.append((b["growthScore"] + b["revenueHealth"]) / 2)
+        total_health = round(sum(all_scores) / len(all_scores) * 100, 1) if all_scores else 0
+
+        # Top priority business
+        high_priority = [b for b in active_biz if b["priority"] == "HIGH"]
+        high_priority.sort(key=lambda x: x["growthScore"] * x["revenueHealth"], reverse=True)
+        top_priority_biz = high_priority[0]["businessName"] if high_priority else "不明"
+
+        # Highest risk
+        high_risk_biz = [b for b in active_biz if b["riskLevel"] == "HIGH"]
+        highest_risk_detail = "サポート過負荷" if high_risk_biz else "重大リスクなし"
+        highest_risk_biz_name = high_risk_biz[0]["businessName"] if high_risk_biz else "なし"
+
+        # Recommended focus from P78
+        last_alloc = _p78_allocation_state.get("lastAllocation") or {}
+        recommended_focus = last_alloc.get("recommendedFocus", "LP改善 + Discord導線強化")
+
+        # Last cross business analysis
+        last_cross = _p77_cross_biz_state.get("lastAnalysis") or {}
+        synergy_ideas = last_cross.get("synergyIdeas", ["AXIA + せどりツールのバンドル販売", "Discord経由のAXIA無料トライアル導線"])
+
+        # Portfolio risk
+        last_portfolio = _p79_portfolio_state.get("lastRiskAnalysis") or {}
+        portfolio_risk = last_portfolio.get("portfolioRisk", "MEDIUM")
+
+        # Health color
+        health_color = "#3fb950" if total_health >= 75 else "#d29922" if total_health >= 55 else "#f85149"
+        risk_color = {"HIGH": "#f85149", "MEDIUM": "#d29922", "LOW": "#3fb950"}.get(portfolio_risk, "#8b949e")
+
+        # Business cards
+        biz_rows = ""
+        for b in active_biz:
+            score = round((b["growthScore"] + b["revenueHealth"]) / 2 * 100, 1)
+            rc = "#3fb950" if b["riskLevel"] == "LOW" else "#d29922" if b["riskLevel"] == "MEDIUM" else "#f85149"
+            biz_rows += f"""<tr>
+<td>{b['businessName']}</td>
+<td>{b['businessType']}</td>
+<td style="color:{rc}">{b['riskLevel']}</td>
+<td>{b['priority']}</td>
+<td style="color:#58a6ff">{score}</td>
+</tr>"""
+
+        synergy_html = "".join(f"<li>{s}</li>" for s in synergy_ideas[:3])
+
+        html = f"""<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AXIA Holding Company Dashboard</title>
+<style>
+  body{{font-family:'Segoe UI',sans-serif;background:#0d1117;color:#e6edf3;margin:0;padding:24px}}
+  h1{{font-size:1.6rem;color:#58a6ff;margin-bottom:4px}}
+  .sub{{color:#8b949e;font-size:0.85rem;margin-bottom:24px}}
+  .grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:16px;margin-bottom:24px}}
+  .card{{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:20px;text-align:center}}
+  .card h3{{margin:0 0 8px;font-size:0.78rem;color:#8b949e;text-transform:uppercase;letter-spacing:.05em}}
+  .score{{font-size:2.2rem;font-weight:700}}
+  .badge{{display:inline-block;padding:6px 16px;border-radius:20px;font-weight:700;font-size:1rem}}
+  .section{{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:20px;margin-bottom:16px}}
+  .section h2{{margin:0 0 12px;font-size:1rem;color:#e6edf3}}
+  table{{width:100%;border-collapse:collapse;font-size:0.85rem}}
+  th{{text-align:left;padding:8px;border-bottom:1px solid #30363d;color:#8b949e;font-weight:600}}
+  td{{padding:8px;border-bottom:1px solid #21262d}}
+  ul{{margin:0;padding-left:20px}}
+  ul li{{margin-bottom:6px;font-size:0.9rem}}
+  .focus-box{{background:#21262d;border:1px solid #30363d;border-radius:8px;padding:12px;font-size:1rem;font-weight:600;color:#58a6ff}}
+  .footer{{margin-top:24px;text-align:center;font-size:0.75rem;color:#484f58}}
+  .safe-badge{{display:inline-block;background:#21262d;border:1px solid #30363d;border-radius:6px;padding:2px 10px;font-size:0.75rem;color:#8b949e;margin-top:8px}}
+</style>
+</head>
+<body>
+<h1>AXIA Holding Company Dashboard</h1>
+<p class="sub">P80 Multi-Business Management OS — 提案のみ・自動事業変更禁止</p>
+
+<div class="grid">
+  <div class="card">
+    <h3>Total Business Health</h3>
+    <div class="score" style="color:{health_color}">{total_health}</div>
+    <div style="font-size:0.75rem;color:#8b949e">/ 100</div>
+  </div>
+  <div class="card">
+    <h3>Active Businesses</h3>
+    <div class="score" style="color:#58a6ff">{len(active_biz)}</div>
+  </div>
+  <div class="card">
+    <h3>Portfolio Risk</h3>
+    <span class="badge" style="background:{risk_color}22;color:{risk_color}">{portfolio_risk}</span>
+  </div>
+  <div class="card">
+    <h3>Top Priority</h3>
+    <div style="font-size:1rem;font-weight:700;color:#e6edf3;margin-top:8px">{top_priority_biz}</div>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Business Portfolio</h2>
+  <table>
+    <thead><tr><th>事業名</th><th>種別</th><th>リスク</th><th>優先度</th><th>健全度</th></tr></thead>
+    <tbody>{biz_rows}</tbody>
+  </table>
+</div>
+
+<div class="section">
+  <h2>Recommended Focus</h2>
+  <div class="focus-box">{recommended_focus}</div>
+</div>
+
+<div class="section">
+  <h2>Synergy Ideas</h2>
+  <ul>{synergy_html}</ul>
+</div>
+
+<div class="section">
+  <h2>Highest Risk</h2>
+  <p style="color:#f85149;margin:0">{highest_risk_biz_name}: {highest_risk_detail}</p>
+</div>
+
+<div class="safe-badge">autoExecuteAllowed = false | 提案のみ・実行には承認が必要</div>
+
+<div class="footer">
+  AXIA_RUNTIME_CLASS = AUTONOMOUS_HOLDING_COMPANY_OPERATOR | P76-P80
+</div>
+</body>
+</html>"""
+        return HTMLResponse(content=html)
