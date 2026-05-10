@@ -3625,3 +3625,793 @@ async def axia_work_reset():
         _p30_state["dailyBrief"] = {"yesterdayContinue": [], "warnings": [], "recommendations": [], "generatedAt": None}
         _p30_state["safeStop"] = {"active": False, "reason": None}
     return {"status": "OK", "message": "P30 workspace reset", "workVersion": "P30"}
+
+
+# ─── End of P30 ──────────────────────────────────────────────────────────────
+
+
+# ============================================================
+# AXIA P31 — Real Browser Operator Runtime
+# ============================================================
+import uuid as _uuid31
+import threading as _p31_threading
+from datetime import datetime as _p31_dt, timezone as _p31_tz, timedelta as _p31_td
+from pydantic import BaseModel as _P31BaseModel
+from typing import Optional as _P31Optional, List as _P31List
+
+# ── P31 Constants ─────────────────────────────────────────────
+_P31_SAFE_ACTIONS = {
+    "open_page", "click", "scroll", "input_text", "wait_for", "capture", "inspect"
+}
+_P31_DANGEROUS_ACTIONS = {
+    "purchase", "delete", "payment", "submit_without_approval",
+    "dangerous_confirm", "deploy", "send_email", "transfer"
+}
+_P31_APPROVAL_REQUIRED_ACTIONS = {
+    "submit", "login", "delete", "purchase", "payment", "dangerous_confirm"
+}
+_P31_NOISE_WORDS = [
+    "playwright", "selector", "xpath", "css_selector", "trace", "stack_trace",
+    "internal_debug", "raw_element", "dom_query"
+]
+_P31_RUNTIME_CLASS = "REAL_BROWSER_OPERATOR_RUNTIME"
+
+# ── P31 State ─────────────────────────────────────────────────
+_p31_lock = _p31_threading.RLock()
+
+_p31_state = {
+    "browserVersion": "P31",
+    "session": {
+        "sessionId": None,
+        "currentUrl": None,
+        "pageTitle": None,
+        "lastAction": None,
+        "status": "idle",  # idle / active / paused / error
+        "startedAt": None,
+        "lastHeartbeat": None,
+        "tabCount": 1,
+    },
+    "actionHistory": [],
+    "browserTimeline": [],
+    "visualVerifyResults": [],
+    "pendingApprovals": [],
+    "safeStop": {
+        "triggered": False,
+        "reason": None,
+    },
+    "recovery": {
+        "lastSavedUrl": None,
+        "lastSavedTitle": None,
+        "lastSavedTimeline": [],
+        "restoredAt": None,
+    },
+}
+
+
+def _p31_jst_now() -> str:
+    jst = _p31_tz(_p31_td(hours=9))
+    return _p31_dt.now(jst).strftime("%Y-%m-%dT%H:%M:%S JST")
+
+
+def _p31_time_short() -> str:
+    jst = _p31_tz(_p31_td(hours=9))
+    return _p31_dt.now(jst).strftime("%H:%M")
+
+
+def _p31_noise_clean(text: str) -> str:
+    """Remove noise words from text."""
+    if not text:
+        return text
+    lower = text.lower()
+    for word in _P31_NOISE_WORDS:
+        if word in lower:
+            return ""
+    return text
+
+
+def _p31_action_to_human(action: str, target: str = "", value: str = "") -> str:
+    """Convert internal action to human-readable Japanese."""
+    mapping = {
+        "open_page": f"ページを開きました: {target}" if target else "ページを開きました",
+        "click": f"ボタンを確認しました: {target}" if target else "ボタンを確認しました",
+        "scroll": "ページをスクロールしました",
+        "input_text": f"入力フォームに入力しました" if value else "入力フォームを検出しました",
+        "wait_for": "要素を待機しました",
+        "capture": "画面を記録しました",
+        "inspect": f"要素を検査しました: {target}" if target else "要素を検査しました",
+        "session_start": "ブラウザセッションを開始しました",
+        "session_end": "ブラウザセッションを終了しました",
+        "visual_verify": "画面の状態を確認しました",
+        "recovery": "セッションを復元しました",
+    }
+    return mapping.get(action, f"操作を実行しました: {action}")
+
+
+def _p31_add_timeline(action: str, detail: str = "", result: str = "OK", target: str = ""):
+    """Add event to browser timeline (human-readable)."""
+    with _p31_lock:
+        human_msg = _p31_action_to_human(action, target)
+        clean_detail = _p31_noise_clean(detail)
+        _p31_state["browserTimeline"].append({
+            "time": _p31_time_short(),
+            "action": action,
+            "humanMessage": human_msg,
+            "detail": clean_detail,
+            "result": result,
+            "timestamp": _p31_jst_now(),
+        })
+        # Keep last 100 events
+        if len(_p31_state["browserTimeline"]) > 100:
+            _p31_state["browserTimeline"] = _p31_state["browserTimeline"][-100:]
+
+
+# ── P31 Pydantic Models ───────────────────────────────────────
+class _P31SessionModel(_P31BaseModel):
+    action: str  # start / end / pause / resume
+    sessionId: _P31Optional[str] = None
+
+
+class _P31ActionModel(_P31BaseModel):
+    action: str
+    target: _P31Optional[str] = None
+    value: _P31Optional[str] = None
+    url: _P31Optional[str] = None
+    detail: _P31Optional[str] = None
+
+
+class _P31VerifyModel(_P31BaseModel):
+    url: _P31Optional[str] = None
+    htmlContent: _P31Optional[str] = None
+    statusCode: _P31Optional[int] = None
+    checkItems: _P31Optional[_P31List[str]] = None
+
+
+class _P31RecoveryModel(_P31BaseModel):
+    action: str  # restore / save
+    url: _P31Optional[str] = None
+    title: _P31Optional[str] = None
+
+
+class _P31ApprovalActionModel(_P31BaseModel):
+    approvalId: str
+    action: str  # approve / reject
+    reason: _P31Optional[str] = None
+
+
+# ── P31 HTML Dashboard ────────────────────────────────────────
+def _p31_render_html() -> str:
+    with _p31_lock:
+        sess = _p31_state["session"]
+        timeline = _p31_state["browserTimeline"][-10:]
+        verify_results = _p31_state["visualVerifyResults"][-5:]
+        pending = _p31_state["pendingApprovals"]
+        safe_stop = _p31_state["safeStop"]
+
+        status_color = {
+            "idle": "#64748b",
+            "active": "#22c55e",
+            "paused": "#fbbf24",
+            "error": "#ef4444",
+        }.get(sess["status"], "#64748b")
+
+        status_label = {
+            "idle": "待機中",
+            "active": "操作中",
+            "paused": "一時停止",
+            "error": "エラー",
+        }.get(sess["status"], "不明")
+
+        timeline_rows = ""
+        for ev in reversed(timeline):
+            r_color = "#22c55e" if ev["result"] == "OK" else "#ef4444"
+            timeline_rows += f"""
+            <div class="tl-row">
+              <span class="tl-time">{ev['time']}</span>
+              <span class="tl-msg">{ev['humanMessage']}</span>
+              <span class="tl-result" style="color:{r_color}">{ev['result']}</span>
+            </div>"""
+
+        verify_rows = ""
+        for vr in reversed(verify_results):
+            ok = vr.get("passed", True)
+            v_color = "#22c55e" if ok else "#ef4444"
+            v_label = "OK" if ok else "NG"
+            issues = ", ".join(vr.get("issues", [])) or "なし"
+            verify_rows += f"""
+            <div class="verify-row">
+              <span class="verify-url">{vr.get('url', '-')[:50]}</span>
+              <span class="verify-status" style="color:{v_color}">{v_label}</span>
+              <span class="verify-issues">{issues}</span>
+            </div>"""
+
+        approval_rows = ""
+        for ap in pending:
+            approval_rows += f"""
+            <div class="ap-row">
+              <span class="ap-action">{ap.get('action', '-')}</span>
+              <span class="ap-target">{ap.get('target', '-')}</span>
+              <span class="ap-status">承認待ち</span>
+            </div>"""
+
+        safe_stop_banner = ""
+        if safe_stop["triggered"]:
+            safe_stop_banner = f"""
+            <div class="safe-stop-banner">
+              SAFE STOP: {safe_stop['reason']}
+            </div>"""
+
+        return f"""<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>AXIA Browser OS</title>
+  <style>
+    *, *::before, *::after {{ box-sizing: border-box; }}
+    body {{
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #0d1117;
+      color: #e2e8f0;
+      margin: 0;
+      padding: 16px 16px calc(16px + env(safe-area-inset-bottom));
+      min-height: 100vh;
+    }}
+    .container {{ max-width: 800px; margin: 0 auto; }}
+    .top-bar {{
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+      gap: 8px;
+    }}
+    .top-title {{ font-size: 20px; font-weight: 800; color: #f8fafc; margin: 0; }}
+    .top-meta {{ font-size: 11px; color: #475569; }}
+    .badge {{
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 12px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      background: #14532d;
+      border: 1px solid #22c55e;
+      color: #4ade80;
+    }}
+    .badge-dot {{
+      width: 6px; height: 6px;
+      background: #22c55e;
+      border-radius: 50%;
+      animation: pulse 2s infinite;
+    }}
+    @keyframes pulse {{ 0%,100% {{ opacity:1; }} 50% {{ opacity:0.3; }} }}
+    .grid {{
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      margin-bottom: 14px;
+    }}
+    @media (max-width: 600px) {{ .grid {{ grid-template-columns: 1fr; }} }}
+    .card {{
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 12px;
+      padding: 16px;
+    }}
+    .card-full {{ grid-column: 1 / -1; }}
+    .card-title {{
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: #475569;
+      margin: 0 0 10px;
+    }}
+    .session-status {{
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }}
+    .status-dot {{
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      background: {status_color};
+    }}
+    .status-label {{ font-size: 16px; font-weight: 700; color: {status_color}; }}
+    .session-url {{
+      font-size: 12px;
+      color: #93c5fd;
+      word-break: break-all;
+      margin: 4px 0;
+    }}
+    .session-action {{
+      font-size: 13px;
+      color: #cbd5e1;
+      margin: 4px 0;
+    }}
+    .tl-row {{
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 0;
+      border-bottom: 1px solid #21262d;
+      font-size: 12px;
+    }}
+    .tl-row:last-child {{ border-bottom: none; }}
+    .tl-time {{ color: #475569; min-width: 36px; font-family: monospace; }}
+    .tl-msg {{ flex: 1; color: #cbd5e1; }}
+    .tl-result {{ font-size: 11px; font-weight: 600; }}
+    .verify-row {{
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 0;
+      border-bottom: 1px solid #21262d;
+      font-size: 12px;
+    }}
+    .verify-row:last-child {{ border-bottom: none; }}
+    .verify-url {{ flex: 1; color: #93c5fd; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
+    .verify-status {{ font-weight: 700; min-width: 24px; }}
+    .verify-issues {{ color: #64748b; font-size: 11px; }}
+    .ap-row {{
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 0;
+      border-bottom: 1px solid #21262d;
+      font-size: 12px;
+    }}
+    .ap-action {{ color: #fbbf24; font-weight: 600; }}
+    .ap-target {{ flex: 1; color: #cbd5e1; }}
+    .ap-status {{ color: #f97316; font-size: 11px; }}
+    .safe-stop-banner {{
+      background: #450a0a;
+      border: 1px solid #ef4444;
+      color: #fca5a5;
+      padding: 10px 16px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 14px;
+    }}
+    .empty {{ color: #475569; font-size: 12px; font-style: italic; }}
+    .footer {{
+      text-align: center;
+      font-size: 10px;
+      color: #30363d;
+      margin-top: 20px;
+      padding-top: 12px;
+      border-top: 1px solid #21262d;
+    }}
+    details summary {{
+      cursor: pointer;
+      font-size: 11px;
+      color: #475569;
+      padding: 6px 0;
+      user-select: none;
+    }}
+    details[open] summary {{ color: #93c5fd; }}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="top-bar">
+      <div>
+        <h1 class="top-title">AXIA Browser OS</h1>
+        <div class="top-meta">Browser Version: P31 | {_p31_jst_now()}</div>
+      </div>
+      <div class="badge">
+        <span class="badge-dot"></span>
+        {status_label}
+      </div>
+    </div>
+
+    {safe_stop_banner}
+
+    <div class="grid">
+      <!-- Current Session -->
+      <div class="card">
+        <div class="card-title">Current Session</div>
+        <div class="session-status">
+          <span class="status-dot"></span>
+          <span class="status-label">{status_label}</span>
+        </div>
+        <div class="session-url">{sess['currentUrl'] or 'URLなし'}</div>
+        <div class="session-action">{sess['lastAction'] or '操作なし'}</div>
+        <div style="font-size:11px;color:#475569;margin-top:6px;">
+          {f"開始: {sess['startedAt']}" if sess['startedAt'] else "未開始"}
+        </div>
+      </div>
+
+      <!-- Visual Verify -->
+      <div class="card">
+        <div class="card-title">Visual Verify</div>
+        {verify_rows if verify_rows else '<div class="empty">検証結果なし</div>'}
+      </div>
+
+      <!-- Browser Timeline -->
+      <div class="card card-full">
+        <div class="card-title">Browser Timeline</div>
+        {timeline_rows if timeline_rows else '<div class="empty">タイムラインはありません</div>'}
+      </div>
+
+      <!-- Approval Center -->
+      <div class="card">
+        <div class="card-title">承認待ち {len(pending)}件</div>
+        {approval_rows if approval_rows else '<div class="empty">承認待ちはありません</div>'}
+      </div>
+
+      <!-- Safe Actions -->
+      <div class="card">
+        <div class="card-title">Safe Actions</div>
+        <details>
+          <summary>許可アクション ({len(_P31_SAFE_ACTIONS)}件)</summary>
+          <div style="font-size:11px;color:#4ade80;margin-top:6px;">
+            {', '.join(sorted(_P31_SAFE_ACTIONS))}
+          </div>
+        </details>
+        <details style="margin-top:6px;">
+          <summary>禁止アクション ({len(_P31_DANGEROUS_ACTIONS)}件)</summary>
+          <div style="font-size:11px;color:#f87171;margin-top:6px;">
+            {', '.join(sorted(_P31_DANGEROUS_ACTIONS))}
+          </div>
+        </details>
+      </div>
+    </div>
+
+    <div class="footer">
+      AXIA_RUNTIME_CLASS = {_P31_RUNTIME_CLASS} | Browser Version: P31 | {_p31_jst_now()}
+    </div>
+  </div>
+</body>
+</html>"""
+
+
+# ── P31 Endpoints ─────────────────────────────────────────────
+@router.get("/axia-browser", response_class=HTMLResponse)
+async def axia_browser_dashboard():
+    """P31 Human Browser View Dashboard"""
+    return HTMLResponse(content=_p31_render_html(), status_code=200)
+
+
+@router.get("/axia-browser/state")
+async def axia_browser_state():
+    """P31 Browser Session State"""
+    with _p31_lock:
+        import copy
+        state_copy = copy.deepcopy(_p31_state)
+    return JSONResponse({
+        "status": "OK",
+        "browserVersion": "P31",
+        "runtimeClass": _P31_RUNTIME_CLASS,
+        "session": state_copy["session"],
+        "timelineCount": len(state_copy["browserTimeline"]),
+        "pendingApprovals": len(state_copy["pendingApprovals"]),
+        "safeStop": state_copy["safeStop"],
+        "safeActions": sorted(list(_P31_SAFE_ACTIONS)),
+        "dangerousActions": sorted(list(_P31_DANGEROUS_ACTIONS)),
+        "serverTime": _p31_jst_now(),
+    })
+
+
+@router.post("/axia-browser/session")
+async def axia_browser_session(body: _P31SessionModel):
+    """P31 Browser Session Management"""
+    with _p31_lock:
+        action = body.action
+        if action == "start":
+            session_id = body.sessionId or str(_uuid31.uuid4())[:8]
+            _p31_state["session"].update({
+                "sessionId": session_id,
+                "status": "active",
+                "startedAt": _p31_jst_now(),
+                "lastHeartbeat": _p31_jst_now(),
+                "currentUrl": None,
+                "pageTitle": None,
+                "lastAction": None,
+            })
+            _p31_add_timeline("session_start", f"sessionId={session_id}")
+            return JSONResponse({
+                "status": "OK",
+                "action": "start",
+                "sessionId": session_id,
+                "session": _p31_state["session"],
+            })
+        elif action == "end":
+            _p31_state["session"]["status"] = "idle"
+            _p31_state["session"]["lastHeartbeat"] = _p31_jst_now()
+            _p31_add_timeline("session_end", "セッション終了")
+            return JSONResponse({
+                "status": "OK",
+                "action": "end",
+                "session": _p31_state["session"],
+            })
+        elif action == "pause":
+            _p31_state["session"]["status"] = "paused"
+            _p31_add_timeline("session_end", "セッション一時停止")
+            return JSONResponse({
+                "status": "OK",
+                "action": "pause",
+                "session": _p31_state["session"],
+            })
+        elif action == "resume":
+            _p31_state["session"]["status"] = "active"
+            _p31_state["session"]["lastHeartbeat"] = _p31_jst_now()
+            return JSONResponse({
+                "status": "OK",
+                "action": "resume",
+                "session": _p31_state["session"],
+            })
+        else:
+            return JSONResponse({"status": "ERROR", "reason": f"Unknown action: {action}"}, status_code=400)
+
+
+@router.post("/axia-browser/action")
+async def axia_browser_action(body: _P31ActionModel):
+    """P31 Safe Browser Action Execution"""
+    action = body.action
+    target = body.target or ""
+    value = body.value or ""
+    url = body.url or ""
+
+    # Check dangerous actions
+    if action in _P31_DANGEROUS_ACTIONS:
+        with _p31_lock:
+            _p31_state["safeStop"]["triggered"] = True
+            _p31_state["safeStop"]["reason"] = f"DANGEROUS ACTION BLOCKED: {action}"
+        return JSONResponse({
+            "status": "BLOCKED",
+            "reason": f"危険なアクション '{action}' はブロックされました",
+            "safeStop": True,
+            "action": action,
+        }, status_code=403)
+
+    # Check approval required
+    if action in _P31_APPROVAL_REQUIRED_ACTIONS:
+        with _p31_lock:
+            approval_id = str(_uuid31.uuid4())[:8]
+            _p31_state["pendingApprovals"].append({
+                "approvalId": approval_id,
+                "action": action,
+                "target": target,
+                "value": value,
+                "status": "pending",
+                "requestedAt": _p31_jst_now(),
+            })
+        return JSONResponse({
+            "status": "APPROVAL_REQUIRED",
+            "reason": f"アクション '{action}' は承認が必要です",
+            "approvalId": approval_id,
+            "action": action,
+        }, status_code=202)
+
+    # Execute safe action
+    if action not in _P31_SAFE_ACTIONS:
+        return JSONResponse({
+            "status": "ERROR",
+            "reason": f"Unknown action: {action}",
+        }, status_code=400)
+
+    with _p31_lock:
+        # Update session
+        if url:
+            _p31_state["session"]["currentUrl"] = url
+        human_msg = _p31_action_to_human(action, target, value)
+        _p31_state["session"]["lastAction"] = human_msg
+        _p31_state["session"]["lastHeartbeat"] = _p31_jst_now()
+
+        # Add to action history
+        _p31_state["actionHistory"].append({
+            "action": action,
+            "target": target,
+            "value": value,
+            "url": url,
+            "result": "OK",
+            "timestamp": _p31_jst_now(),
+        })
+        if len(_p31_state["actionHistory"]) > 200:
+            _p31_state["actionHistory"] = _p31_state["actionHistory"][-200:]
+
+        _p31_add_timeline(action, body.detail or "", "OK", target)
+
+    return JSONResponse({
+        "status": "OK",
+        "action": action,
+        "humanMessage": human_msg,
+        "session": _p31_state["session"],
+    })
+
+
+@router.post("/axia-browser/verify")
+async def axia_browser_verify(body: _P31VerifyModel):
+    """P31 Visual Verify Runtime"""
+    url = body.url or ""
+    html_content = body.htmlContent or ""
+    status_code = body.statusCode
+    check_items = body.checkItems or ["404", "500", "blank", "missing_button", "layout", "console_error"]
+
+    issues = []
+    passed = True
+
+    # Check HTTP status
+    if status_code:
+        if status_code == 404:
+            issues.append("404 Not Found")
+            passed = False
+        elif status_code == 500:
+            issues.append("500 Internal Server Error")
+            passed = False
+        elif status_code >= 400:
+            issues.append(f"HTTP Error {status_code}")
+            passed = False
+
+    # Check HTML content
+    if html_content:
+        lower_html = html_content.lower()
+        if "blank" in check_items:
+            # Blank page check: very short content
+            if len(html_content.strip()) < 100:
+                issues.append("白画面 (blank page)")
+                passed = False
+        if "missing_button" in check_items:
+            # Check for common button absence
+            if "<button" not in lower_html and "btn" not in lower_html:
+                issues.append("ボタン欠落の可能性")
+        if "console_error" in check_items:
+            # Check for error indicators
+            if "error" in lower_html and "console" in lower_html:
+                issues.append("console error の可能性")
+        if "layout" in check_items:
+            # Check for basic layout elements
+            if "<body" not in lower_html:
+                issues.append("レイアウト崩れの可能性")
+
+    verify_result = {
+        "url": url,
+        "statusCode": status_code,
+        "passed": passed,
+        "issues": issues,
+        "checkedAt": _p31_jst_now(),
+    }
+
+    with _p31_lock:
+        _p31_state["visualVerifyResults"].append(verify_result)
+        if len(_p31_state["visualVerifyResults"]) > 50:
+            _p31_state["visualVerifyResults"] = _p31_state["visualVerifyResults"][-50:]
+        _p31_add_timeline("visual_verify", f"url={url}", "OK" if passed else "NG")
+
+    return JSONResponse({
+        "status": "OK",
+        "verifyResult": verify_result,
+        "passed": passed,
+        "issues": issues,
+    })
+
+
+@router.get("/axia-browser/timeline")
+async def axia_browser_timeline():
+    """P31 Browser Timeline"""
+    with _p31_lock:
+        timeline = list(_p31_state["browserTimeline"])
+    return JSONResponse({
+        "status": "OK",
+        "browserVersion": "P31",
+        "count": len(timeline),
+        "timeline": timeline,
+        "serverTime": _p31_jst_now(),
+    })
+
+
+@router.post("/axia-browser/recovery")
+async def axia_browser_recovery(body: _P31RecoveryModel):
+    """P31 Browser Session Recovery"""
+    with _p31_lock:
+        if body.action == "save":
+            # Save current state for recovery
+            _p31_state["recovery"]["lastSavedUrl"] = body.url or _p31_state["session"]["currentUrl"]
+            _p31_state["recovery"]["lastSavedTitle"] = body.title or _p31_state["session"]["pageTitle"]
+            _p31_state["recovery"]["lastSavedTimeline"] = list(_p31_state["browserTimeline"][-20:])
+            return JSONResponse({
+                "status": "OK",
+                "action": "save",
+                "savedUrl": _p31_state["recovery"]["lastSavedUrl"],
+                "savedTitle": _p31_state["recovery"]["lastSavedTitle"],
+            })
+        elif body.action == "restore":
+            # Restore session from saved state
+            saved_url = _p31_state["recovery"]["lastSavedUrl"]
+            saved_title = _p31_state["recovery"]["lastSavedTitle"]
+            saved_timeline = _p31_state["recovery"]["lastSavedTimeline"]
+
+            _p31_state["session"]["currentUrl"] = saved_url
+            _p31_state["session"]["pageTitle"] = saved_title
+            _p31_state["session"]["status"] = "active"
+            _p31_state["session"]["lastHeartbeat"] = _p31_jst_now()
+            _p31_state["recovery"]["restoredAt"] = _p31_jst_now()
+
+            # Restore timeline if empty
+            if not _p31_state["browserTimeline"] and saved_timeline:
+                _p31_state["browserTimeline"] = saved_timeline
+
+            _p31_add_timeline("recovery", "セッション復元完了")
+            return JSONResponse({
+                "status": "OK",
+                "action": "restore",
+                "restoredUrl": saved_url,
+                "restoredTitle": saved_title,
+                "restoredAt": _p31_state["recovery"]["restoredAt"],
+                "session": _p31_state["session"],
+            })
+        else:
+            return JSONResponse({"status": "ERROR", "reason": f"Unknown action: {body.action}"}, status_code=400)
+
+
+@router.get("/axia-browser/approval")
+async def axia_browser_approval_list():
+    """P31 Pending Approvals List"""
+    with _p31_lock:
+        pending = [a for a in _p31_state["pendingApprovals"] if a["status"] == "pending"]
+    return JSONResponse({
+        "status": "OK",
+        "count": len(pending),
+        "pending": pending,
+        "serverTime": _p31_jst_now(),
+    })
+
+
+@router.post("/axia-browser/approval/{approval_id}")
+async def axia_browser_approval_action(approval_id: str, body: _P31ApprovalActionModel):
+    """P31 Approval Action"""
+    with _p31_lock:
+        for ap in _p31_state["pendingApprovals"]:
+            if ap["approvalId"] == approval_id:
+                ap["status"] = body.action  # approve / reject
+                ap["resolvedAt"] = _p31_jst_now()
+                ap["reason"] = body.reason
+                _p31_add_timeline(
+                    "click",
+                    f"承認アクション: {body.action}",
+                    "OK",
+                    approval_id,
+                )
+                return JSONResponse({
+                    "status": "OK",
+                    "approvalId": approval_id,
+                    "action": body.action,
+                    "approval": ap,
+                })
+        return JSONResponse({"status": "ERROR", "reason": "Approval not found"}, status_code=404)
+
+
+@router.post("/axia-browser/reset")
+async def axia_browser_reset():
+    """P31 Reset Browser State (for testing)"""
+    with _p31_lock:
+        _p31_state["session"] = {
+            "sessionId": None,
+            "currentUrl": None,
+            "pageTitle": None,
+            "lastAction": None,
+            "status": "idle",
+            "startedAt": None,
+            "lastHeartbeat": None,
+            "tabCount": 1,
+        }
+        _p31_state["actionHistory"] = []
+        _p31_state["browserTimeline"] = []
+        _p31_state["visualVerifyResults"] = []
+        _p31_state["pendingApprovals"] = []
+        _p31_state["safeStop"] = {"triggered": False, "reason": None}
+        _p31_state["recovery"] = {
+            "lastSavedUrl": None,
+            "lastSavedTitle": None,
+            "lastSavedTimeline": [],
+            "restoredAt": None,
+        }
+    return JSONResponse({"status": "OK", "message": "P31 state reset"})
+
+# ─── End of P31 ──────────────────────────────────────────────────────────────
