@@ -8506,3 +8506,475 @@ async def p70_sales_cs_dashboard():
 </body>
 </html>"""
         return HTMLResponse(content=html)
+
+
+# ============================================================
+# P71: Executive KPI Runtime
+# ============================================================
+import uuid as _uuid_p71
+
+_p71_exec_kpi_state = {
+    "growthScore": 0.72,
+    "revenueHealth": 0.78,
+    "leadQuality": 0.65,
+    "conversionTrend": 0.58,
+    "customerRetention": 0.82,
+    "supportLoad": 0.45,
+    "workflowSuccessRate": 0.88,
+    "lastUpdated": None,
+    "kpiVersion": "P71",
+}
+
+def _p71_compute_executive_summary(state):
+    scores = [
+        state["growthScore"],
+        state["revenueHealth"],
+        state["leadQuality"],
+        state["conversionTrend"],
+        state["customerRetention"],
+        1.0 - state["supportLoad"],
+        state["workflowSuccessRate"],
+    ]
+    overall = round(sum(scores) / len(scores) * 100, 1)
+
+    trend = "UP" if overall >= 70 else "STABLE" if overall >= 55 else "DOWN"
+
+    risk_flags = []
+    if state["conversionTrend"] < 0.55:
+        risk_flags.append("CVR低下傾向")
+    if state["supportLoad"] > 0.7:
+        risk_flags.append("サポート負荷増加")
+    if state["leadQuality"] < 0.6:
+        risk_flags.append("リード品質低下")
+    if state["customerRetention"] < 0.75:
+        risk_flags.append("顧客継続率低下")
+    if not risk_flags:
+        risk_flags.append("重大リスクなし")
+
+    summary = f"総合スコア {overall}/100 — トレンド {trend}。{len([r for r in risk_flags if r != '重大リスクなし'])}件のリスクフラグを検出。"
+
+    trend_analysis = {
+        "overall": overall,
+        "trend": trend,
+        "growthMomentum": "POSITIVE" if state["growthScore"] > 0.7 else "NEUTRAL" if state["growthScore"] > 0.5 else "NEGATIVE",
+        "revenueStatus": "HEALTHY" if state["revenueHealth"] > 0.75 else "WARNING",
+        "retentionStatus": "STRONG" if state["customerRetention"] > 0.8 else "MODERATE",
+    }
+
+    return overall, trend, risk_flags, summary, trend_analysis
+
+@router.get("/axia-executive-kpi")
+async def p71_exec_kpi_get():
+    with _p46_lock:
+        state = dict(_p71_exec_kpi_state)
+        overall, trend, risk_flags, summary, trend_analysis = _p71_compute_executive_summary(state)
+        state["overallScore"] = overall
+        state["trendDirection"] = trend
+        state["riskFlags"] = risk_flags
+        state["executiveSummary"] = summary
+        state["trendAnalysis"] = trend_analysis
+        state["autoExecuteAllowed"] = False
+        state["runtimeClass"] = "AUTONOMOUS_EXECUTIVE_INTELLIGENCE_OPERATOR"
+        return state
+
+@router.post("/axia-executive-kpi/update")
+async def p71_exec_kpi_update(request: Request):
+    with _p46_lock:
+        body = await request.json()
+        for key in ["growthScore", "revenueHealth", "leadQuality", "conversionTrend",
+                    "customerRetention", "supportLoad", "workflowSuccessRate"]:
+            if key in body:
+                _p71_exec_kpi_state[key] = float(body[key])
+        from datetime import datetime
+        _p71_exec_kpi_state["lastUpdated"] = datetime.utcnow().isoformat() + "Z"
+
+        state = dict(_p71_exec_kpi_state)
+        overall, trend, risk_flags, summary, trend_analysis = _p71_compute_executive_summary(state)
+        return {
+            "updated": True,
+            "overallScore": overall,
+            "trendDirection": trend,
+            "riskFlags": risk_flags,
+            "executiveSummary": summary,
+            "trendAnalysis": trend_analysis,
+            "kpiVersion": "P71",
+            "autoExecuteAllowed": False,
+        }
+
+
+# ============================================================
+# P72: Cross-Department Insight Runtime
+# ============================================================
+import uuid as _uuid_p72
+
+_p72_cross_state = {
+    "crossInsights": [],
+    "lastAnalysis": None,
+    "crossVersion": "P72",
+}
+
+_P72_CROSS_PAIRS = [
+    {
+        "pair": "Sales ↔ CS",
+        "insight": "HOTリードの成約後CSオンボーディングに遅延が発生。成約からCS引き継ぎまでの時間を短縮することで解約リスクを低減できる。",
+        "risk": "MEDIUM",
+        "action": "Sales→CS引き継ぎプロセスの自動化",
+    },
+    {
+        "pair": "Marketing ↔ Conversion",
+        "insight": "マーケティングのリード数は増加しているが、LP CVRが低下中。広告→LPのメッセージ一致性を改善することで転換率を向上できる。",
+        "risk": "HIGH",
+        "action": "LP A/Bテストの実施とCTA改善",
+    },
+    {
+        "pair": "UX ↔ Retention",
+        "insight": "モバイルUXスコアが低い層の解約率が高い。モバイル体験の改善が顧客継続率向上に直結する。",
+        "risk": "MEDIUM",
+        "action": "モバイルUX改善（CTA固定・フォーム短縮）",
+    },
+    {
+        "pair": "Support ↔ Product",
+        "insight": "サポート問い合わせの上位3件が同一機能に集中。製品改善でサポート負荷を30%削減できる可能性がある。",
+        "risk": "LOW",
+        "action": "FAQ充実とオンボーディングUI改善",
+    },
+    {
+        "pair": "Workflow ↔ Revenue",
+        "insight": "ワークフロー成功率が高い月は売上成長率も高い相関がある。ワークフロー安定化が直接的な収益貢献につながる。",
+        "risk": "LOW",
+        "action": "ワークフロー自動化の拡張",
+    },
+]
+
+@router.get("/axia-cross-insight")
+async def p72_cross_get():
+    with _p46_lock:
+        state = dict(_p72_cross_state)
+        state["availablePairs"] = [p["pair"] for p in _P72_CROSS_PAIRS]
+        state["autoExecuteAllowed"] = False
+        state["runtimeClass"] = "AUTONOMOUS_EXECUTIVE_INTELLIGENCE_OPERATOR"
+        return state
+
+@router.post("/axia-cross-insight/analyze")
+async def p72_cross_analyze(request: Request):
+    with _p46_lock:
+        body = await request.json()
+        focus_pairs = body.get("focusPairs", [])
+
+        pairs = _P72_CROSS_PAIRS if not focus_pairs else [
+            p for p in _P72_CROSS_PAIRS if any(fp.lower() in p["pair"].lower() for fp in focus_pairs)
+        ] or _P72_CROSS_PAIRS
+
+        cross_insights = [
+            {"pair": p["pair"], "insight": p["insight"], "risk": p["risk"]}
+            for p in pairs
+        ]
+        dependency_risks = [p for p in pairs if p["risk"] in ("HIGH", "MEDIUM")]
+        growth_bottlenecks = [
+            {"bottleneck": p["pair"], "action": p["action"]}
+            for p in pairs if p["risk"] == "HIGH"
+        ] or [{"bottleneck": "Marketing ↔ Conversion", "action": "LP A/Bテストの実施"}]
+
+        record = {
+            "analysisId": str(_uuid_p72.uuid4()),
+            "crossInsights": cross_insights,
+            "dependencyRisks": [{"pair": r["pair"], "risk": r["risk"], "action": r["action"]} for r in dependency_risks],
+            "growthBottlenecks": growth_bottlenecks,
+            "crossVersion": "P72",
+            "autoExecuteAllowed": False,
+        }
+        _p72_cross_state["crossInsights"] = cross_insights
+        _p72_cross_state["lastAnalysis"] = record
+        return record
+
+
+# ============================================================
+# P73: Business Risk Runtime
+# ============================================================
+import uuid as _uuid_p73
+
+_p73_risk_state = {
+    "riskAnalyses": [],
+    "lastAnalysis": None,
+    "riskVersion": "P73",
+}
+
+def _p73_assess_risk(kpi_state):
+    risk_factors = []
+    severity_scores = []
+
+    if kpi_state.get("leadQuality", 1.0) < 0.6:
+        risk_factors.append({"factor": "リード品質低下", "severity": "HIGH", "metric": f"leadQuality={kpi_state.get('leadQuality', 0):.2f}"})
+        severity_scores.append(3)
+    if kpi_state.get("conversionTrend", 1.0) < 0.55:
+        risk_factors.append({"factor": "CVR低下", "severity": "HIGH", "metric": f"conversionTrend={kpi_state.get('conversionTrend', 0):.2f}"})
+        severity_scores.append(3)
+    if kpi_state.get("customerRetention", 1.0) < 0.75:
+        risk_factors.append({"factor": "顧客継続率低下", "severity": "MEDIUM", "metric": f"customerRetention={kpi_state.get('customerRetention', 0):.2f}"})
+        severity_scores.append(2)
+    if kpi_state.get("supportLoad", 0.0) > 0.7:
+        risk_factors.append({"factor": "サポート過負荷", "severity": "MEDIUM", "metric": f"supportLoad={kpi_state.get('supportLoad', 0):.2f}"})
+        severity_scores.append(2)
+    if kpi_state.get("workflowSuccessRate", 1.0) < 0.75:
+        risk_factors.append({"factor": "ワークフロー不安定", "severity": "MEDIUM", "metric": f"workflowSuccessRate={kpi_state.get('workflowSuccessRate', 0):.2f}"})
+        severity_scores.append(2)
+    if kpi_state.get("growthScore", 1.0) < 0.5:
+        risk_factors.append({"factor": "成長鈍化", "severity": "LOW", "metric": f"growthScore={kpi_state.get('growthScore', 0):.2f}"})
+        severity_scores.append(1)
+
+    if not risk_factors:
+        risk_factors.append({"factor": "重大リスクなし", "severity": "LOW", "metric": "all KPIs healthy"})
+        severity_scores.append(0)
+
+    avg_severity = sum(severity_scores) / len(severity_scores) if severity_scores else 0
+    if avg_severity >= 2.5:
+        risk_level = "HIGH"
+    elif avg_severity >= 1.5:
+        risk_level = "MEDIUM"
+    else:
+        risk_level = "LOW"
+
+    recommended_attention = []
+    high_risks = [r for r in risk_factors if r["severity"] == "HIGH"]
+    if high_risks:
+        recommended_attention.append(f"緊急対応: {high_risks[0]['factor']}の改善を最優先で実施")
+    medium_risks = [r for r in risk_factors if r["severity"] == "MEDIUM"]
+    if medium_risks:
+        recommended_attention.append(f"今週中: {medium_risks[0]['factor']}の対策を計画")
+    if not recommended_attention:
+        recommended_attention.append("現状維持: 定期モニタリングを継続")
+
+    return risk_level, risk_factors, round(avg_severity, 2), recommended_attention
+
+@router.get("/axia-business-risk")
+async def p73_risk_get():
+    with _p46_lock:
+        state = dict(_p73_risk_state)
+        risk_level, risk_factors, severity, recommended_attention = _p73_assess_risk(_p71_exec_kpi_state)
+        state["currentRiskLevel"] = risk_level
+        state["currentRiskFactors"] = risk_factors
+        state["severity"] = severity
+        state["recommendedAttention"] = recommended_attention
+        state["autoExecuteAllowed"] = False
+        state["runtimeClass"] = "AUTONOMOUS_EXECUTIVE_INTELLIGENCE_OPERATOR"
+        return state
+
+@router.post("/axia-business-risk/analyze")
+async def p73_risk_analyze(request: Request):
+    with _p46_lock:
+        body = await request.json()
+        kpi_override = body.get("kpiSnapshot", _p71_exec_kpi_state)
+
+        risk_level, risk_factors, severity, recommended_attention = _p73_assess_risk(kpi_override)
+
+        record = {
+            "analysisId": str(_uuid_p73.uuid4()),
+            "riskLevel": risk_level,
+            "riskFactors": risk_factors,
+            "severity": severity,
+            "recommendedAttention": recommended_attention,
+            "riskVersion": "P73",
+            "autoExecuteAllowed": False,
+        }
+        _p73_risk_state["riskAnalyses"].append(record)
+        if len(_p73_risk_state["riskAnalyses"]) > 20:
+            _p73_risk_state["riskAnalyses"] = _p73_risk_state["riskAnalyses"][-20:]
+        _p73_risk_state["lastAnalysis"] = record
+        return record
+
+
+# ============================================================
+# P74: Strategic Recommendation Runtime
+# ============================================================
+import uuid as _uuid_p74
+
+_p74_strategy_state = {
+    "recommendations": [],
+    "lastRecommendation": None,
+    "strategyVersion": "P74",
+}
+
+_P74_QUICK_WINS = [
+    {"action": "CTAボタンを固定表示に変更", "estimatedImpact": "+8% CVR", "effort": "LOW"},
+    {"action": "フォームのフィールド数を3つに削減", "estimatedImpact": "+12% 完了率", "effort": "LOW"},
+    {"action": "FAQページの充実（上位5件）", "estimatedImpact": "-20% サポート問い合わせ", "effort": "LOW"},
+    {"action": "モバイルCTAの視認性改善", "estimatedImpact": "+6% モバイルCVR", "effort": "LOW"},
+]
+
+_P74_LONG_TERM = [
+    {"action": "LP A/Bテストの継続実施", "estimatedImpact": "+15-25% CVR長期改善", "effort": "MEDIUM"},
+    {"action": "CS自動化ワークフロー構築", "estimatedImpact": "-30% CS工数", "effort": "HIGH"},
+    {"action": "リードスコアリング精度向上", "estimatedImpact": "+20% 成約率", "effort": "HIGH"},
+    {"action": "製品オンボーディングの改善", "estimatedImpact": "+15% 継続率", "effort": "MEDIUM"},
+]
+
+@router.get("/axia-strategy")
+async def p74_strategy_get():
+    with _p46_lock:
+        state = dict(_p74_strategy_state)
+        state["availableQuickWins"] = len(_P74_QUICK_WINS)
+        state["availableLongTermPlans"] = len(_P74_LONG_TERM)
+        state["autoExecuteAllowed"] = False
+        state["runtimeClass"] = "AUTONOMOUS_EXECUTIVE_INTELLIGENCE_OPERATOR"
+        return state
+
+@router.post("/axia-strategy/recommend")
+async def p74_strategy_recommend(request: Request):
+    with _p46_lock:
+        body = await request.json()
+        focus = body.get("focus", "all")
+        max_effort = body.get("maxEffort", "HIGH")
+
+        effort_order = {"LOW": 1, "MEDIUM": 2, "HIGH": 3}
+        max_effort_val = effort_order.get(max_effort, 3)
+
+        quick_wins = [q for q in _P74_QUICK_WINS if effort_order.get(q["effort"], 1) <= max_effort_val]
+        long_term = [l for l in _P74_LONG_TERM if effort_order.get(l["effort"], 1) <= max_effort_val]
+
+        # Top priorities = quick wins first
+        top_priorities = [q["action"] for q in quick_wins[:3]]
+        recommended_focus = "CVR改善とCS効率化を最優先に取り組む。短期でのCTA・フォーム改善から始め、中長期でCS自動化を進める。"
+        estimated_business_impact = "+12% Growth Potential（CVR改善+リード品質向上+CS効率化の複合効果）"
+
+        record = {
+            "recommendationId": str(_uuid_p74.uuid4()),
+            "topPriorities": top_priorities,
+            "recommendedFocus": recommended_focus,
+            "quickWins": quick_wins,
+            "longTermImprovements": long_term,
+            "estimatedBusinessImpact": estimated_business_impact,
+            "isDraft": True,
+            "autoExecuteAllowed": False,
+            "strategyVersion": "P74",
+        }
+        _p74_strategy_state["recommendations"].append(record)
+        if len(_p74_strategy_state["recommendations"]) > 10:
+            _p74_strategy_state["recommendations"] = _p74_strategy_state["recommendations"][-10:]
+        _p74_strategy_state["lastRecommendation"] = record
+        return record
+
+
+# ============================================================
+# P75: Executive Command Dashboard
+# ============================================================
+@router.get("/axia-executive")
+async def p75_executive_dashboard():
+    with _p46_lock:
+        # Gather data from P71-P74
+        kpi = _p71_exec_kpi_state
+        overall, trend, risk_flags, summary, trend_analysis = _p71_compute_executive_summary(kpi)
+        risk_level, risk_factors, severity, recommended_attention = _p73_assess_risk(kpi)
+
+        # Top priorities from P74
+        last_rec = _p74_strategy_state.get("lastRecommendation") or {}
+        top_priorities = last_rec.get("topPriorities", ["CTAボタン固定表示", "フォーム短縮", "FAQ充実"])
+        estimated_impact = last_rec.get("estimatedBusinessImpact", "+12% Growth Potential")
+
+        # Cross insights from P72
+        last_cross = _p72_cross_state.get("lastAnalysis") or {}
+        cross_insights = last_cross.get("crossInsights", [])
+        top_bottleneck = last_cross.get("growthBottlenecks", [{"bottleneck": "Marketing ↔ Conversion", "action": "LP A/Bテスト"}])
+
+        # Colors
+        health_color = "#3fb950" if overall >= 75 else "#d29922" if overall >= 55 else "#f85149"
+        trend_color = "#3fb950" if trend == "UP" else "#d29922" if trend == "STABLE" else "#f85149"
+        risk_color = {"HIGH": "#f85149", "MEDIUM": "#d29922", "LOW": "#3fb950"}.get(risk_level, "#8b949e")
+
+        risk_html = "".join(f"<li>{r['factor']}</li>" for r in risk_factors[:3] if r.get("factor") != "重大リスクなし")
+        if not risk_html:
+            risk_html = "<li>重大リスクなし</li>"
+        priorities_html = "".join(f"<li>{p}</li>" for p in top_priorities[:3])
+        def _fmt_cross(c):
+            risk_val = c["risk"].lower()
+            pair_val = c["pair"]
+            risk_text = c["risk"]
+            return f"<div class='cross-item'><span class='pair'>{pair_val}</span><span class='risk-badge-sm risk-{risk_val}'>{risk_text}</span></div>"
+        cross_html = "".join(
+            _fmt_cross(c)
+            for c in cross_insights[:3]
+        ) if cross_insights else "<div class='cross-item'><span class='pair'>データなし（POST /axia-cross-insight/analyze で分析）</span></div>" 
+
+        html = f"""<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AXIA Executive Command Dashboard</title>
+<style>
+  body{{font-family:'Segoe UI',sans-serif;background:#0d1117;color:#e6edf3;margin:0;padding:24px}}
+  h1{{font-size:1.6rem;color:#58a6ff;margin-bottom:4px}}
+  .sub{{color:#8b949e;font-size:0.85rem;margin-bottom:24px}}
+  .grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin-bottom:24px}}
+  .card{{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:20px;text-align:center}}
+  .card h3{{margin:0 0 8px;font-size:0.8rem;color:#8b949e;text-transform:uppercase;letter-spacing:.05em}}
+  .score{{font-size:2.5rem;font-weight:700}}
+  .badge{{display:inline-block;padding:6px 16px;border-radius:20px;font-weight:700;font-size:1.1rem}}
+  .section{{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:20px;margin-bottom:16px}}
+  .section h2{{margin:0 0 12px;font-size:1rem;color:#e6edf3}}
+  ul{{margin:0;padding-left:20px;color:#e6edf3}}
+  ul li{{margin-bottom:6px;font-size:0.9rem}}
+  .cross-item{{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #21262d}}
+  .pair{{font-size:0.85rem;color:#e6edf3}}
+  .risk-badge-sm{{padding:2px 10px;border-radius:12px;font-size:0.75rem;font-weight:600}}
+  .risk-high{{background:#f8514922;color:#f85149}}
+  .risk-medium{{background:#d2992222;color:#d29922}}
+  .risk-low{{background:#3fb95022;color:#3fb950}}
+  .impact-box{{background:#21262d;border:1px solid #30363d;border-radius:8px;padding:12px;text-align:center;font-size:1.1rem;font-weight:700;color:#58a6ff}}
+  .footer{{margin-top:24px;text-align:center;font-size:0.75rem;color:#484f58}}
+  .safe-badge{{display:inline-block;background:#21262d;border:1px solid #30363d;border-radius:6px;padding:2px 10px;font-size:0.75rem;color:#8b949e;margin-top:8px}}
+  .summary-text{{font-size:0.85rem;color:#8b949e;margin-top:8px;line-height:1.5}}
+</style>
+</head>
+<body>
+<h1>AXIA Executive Command Dashboard</h1>
+<p class="sub">P75 Executive Intelligence OS — 提案のみ・自動経営判断禁止</p>
+
+<div class="grid">
+  <div class="card">
+    <h3>Business Health</h3>
+    <div class="score" style="color:{health_color}">{overall}</div>
+    <div style="font-size:0.75rem;color:#8b949e">/ 100</div>
+  </div>
+  <div class="card">
+    <h3>Growth Trend</h3>
+    <span class="badge" style="background:{trend_color}22;color:{trend_color}">{trend}</span>
+  </div>
+  <div class="card">
+    <h3>Business Risk</h3>
+    <span class="badge" style="background:{risk_color}22;color:{risk_color}">{risk_level}</span>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Executive Summary</h2>
+  <div class="summary-text">{summary}</div>
+</div>
+
+<div class="section">
+  <h2>Top Risks</h2>
+  <ul>{risk_html}</ul>
+</div>
+
+<div class="section">
+  <h2>Top Priorities</h2>
+  <ul>{priorities_html}</ul>
+</div>
+
+<div class="section">
+  <h2>Cross-Department Insights</h2>
+  {cross_html}
+</div>
+
+<div class="section">
+  <h2>Estimated Business Impact</h2>
+  <div class="impact-box">{estimated_impact}</div>
+</div>
+
+<div class="safe-badge">autoExecuteAllowed = false | 提案のみ・実行には承認が必要</div>
+
+<div class="footer">
+  AXIA_RUNTIME_CLASS = AUTONOMOUS_EXECUTIVE_INTELLIGENCE_OPERATOR | P71-P75
+</div>
+</body>
+</html>"""
+        return HTMLResponse(content=html)
