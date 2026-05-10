@@ -8053,3 +8053,456 @@ async def p65_marketing_dashboard():
 </body>
 </html>"""
         return HTMLResponse(content=html)
+
+
+# ============================================================
+# P66: Lead Qualification Runtime
+# ============================================================
+import uuid as _uuid_p66
+
+_p66_lead_state = {
+    "leadAnalyses": [],
+    "lastAnalysis": None,
+    "leadVersion": "P66",
+}
+
+def _p66_qualify_lead(interest_level, fit_score, pain_point, budget_signal, urgency):
+    # Composite lead score (0-100)
+    score = round(
+        interest_level * 0.25 + fit_score * 0.25 + pain_point * 0.2 +
+        budget_signal * 0.15 + urgency * 0.15, 3
+    ) * 100
+    score = round(score, 1)
+
+    # Lead type
+    if score >= 75:
+        lead_type = "HOT"
+    elif score >= 50:
+        lead_type = "WARM"
+    else:
+        lead_type = "COLD"
+
+    # Next action
+    if lead_type == "HOT":
+        next_action = "今すぐ個別提案を送る（クロージング優先）"
+    elif lead_type == "WARM":
+        next_action = "事例・比較資料を送り、温度感を上げる"
+    else:
+        next_action = "ナーチャリングコンテンツを送り、関係構築を継続"
+
+    summary = f"リードスコア {score}/100 — {lead_type}リード。{next_action}"
+
+    return score, lead_type, next_action, summary
+
+@router.get("/axia-lead-qualification")
+async def p66_lead_get():
+    with _p46_lock:
+        state = dict(_p66_lead_state)
+        state["autoSendAllowed"] = False
+        state["runtimeClass"] = "AUTONOMOUS_SALES_CUSTOMER_SUCCESS_OPERATOR"
+        return state
+
+@router.post("/axia-lead-qualification/analyze")
+async def p66_lead_analyze(request: Request):
+    with _p46_lock:
+        body = await request.json()
+        interest_level = float(body.get("interestLevel", 0.7))
+        fit_score = float(body.get("fitScore", 0.7))
+        pain_point = float(body.get("painPoint", 0.6))
+        budget_signal = float(body.get("budgetSignal", 0.5))
+        urgency = float(body.get("urgency", 0.5))
+
+        score, lead_type, next_action, summary = _p66_qualify_lead(
+            interest_level, fit_score, pain_point, budget_signal, urgency
+        )
+
+        record = {
+            "analysisId": str(_uuid_p66.uuid4()),
+            "interestLevel": interest_level,
+            "fitScore": fit_score,
+            "painPoint": pain_point,
+            "budgetSignal": budget_signal,
+            "urgency": urgency,
+            "leadScore": score,
+            "leadType": lead_type,
+            "recommendedNextAction": next_action,
+            "qualificationSummary": summary,
+            "leadVersion": "P66",
+            "autoSendAllowed": False,
+        }
+        _p66_lead_state["leadAnalyses"].append(record)
+        if len(_p66_lead_state["leadAnalyses"]) > 20:
+            _p66_lead_state["leadAnalyses"] = _p66_lead_state["leadAnalyses"][-20:]
+        _p66_lead_state["lastAnalysis"] = record
+        return record
+
+
+# ============================================================
+# P67: Sales Script Runtime
+# ============================================================
+import uuid as _uuid_p67
+
+_p67_script_state = {
+    "scriptDrafts": [],
+    "lastDraft": None,
+    "scriptVersion": "P67",
+}
+
+_P67_FIRST_DM = [
+    "はじめまして。{product}の{name}と申します。{target}向けに{benefit}を提供しております。一度お話しできますでしょうか？",
+    "突然のご連絡失礼いたします。{product}の{name}です。{target}の方々のお役に立てる{benefit}があり、ご紹介させていただきたく存じます。",
+]
+_P67_REPLY = [
+    "ご返信ありがとうございます。ご質問の件ですが、{answer}。他にご不明点がございましたらお気軽にどうぞ。",
+    "お時間いただきありがとうございます。{answer}。ぜひ一度詳しくご説明させてください。",
+]
+_P67_PROPOSAL = [
+    "この度は弊社{product}をご検討いただきありがとうございます。{target}向けに特化した{benefit}をご提供できます。導入後は{outcome}が期待できます。",
+]
+_P67_FAQ = [
+    "Q: 料金はいくらですか？\nA: 月額○○円〜（プランにより異なります）。14日間の無料トライアルもご用意しております。",
+    "Q: 解約はいつでもできますか？\nA: はい、いつでも解約可能です。違約金等は一切ございません。",
+    "Q: サポートはありますか？\nA: チャット・メールでのサポートをご用意しております。",
+]
+_P67_CLOSING = [
+    "ご検討いただきありがとうございます。もしよろしければ、今週中に30分ほどお時間をいただけますでしょうか。具体的なご提案をさせていただきます。",
+    "ぜひ一度、無料トライアルをお試しください。設定は5分で完了します。ご不明点はいつでもご連絡ください。",
+]
+
+@router.get("/axia-sales-script")
+async def p67_script_get():
+    with _p46_lock:
+        state = dict(_p67_script_state)
+        state["autoSendAllowed"] = False
+        state["runtimeClass"] = "AUTONOMOUS_SALES_CUSTOMER_SUCCESS_OPERATOR"
+        return state
+
+@router.post("/axia-sales-script/generate")
+async def p67_script_generate(request: Request):
+    with _p46_lock:
+        body = await request.json()
+        product_name = body.get("productName", "AXIA")
+        sender_name = body.get("senderName", "担当者")
+        target = body.get("targetAudience", "中小企業オーナー")
+        benefit = body.get("mainBenefit", "売上分析・改善提案の自動化")
+        outcome = body.get("expectedOutcome", "作業時間70%削減・CVR改善")
+        script_type = body.get("scriptType", "all")
+
+        def fmt(tmpl):
+            return tmpl.format(
+                product=product_name, name=sender_name,
+                target=target, benefit=benefit, outcome=outcome,
+                answer="詳細は個別にご説明いたします"
+            )
+
+        draft = {
+            "draftId": str(_uuid_p67.uuid4()),
+            "productName": product_name,
+            "targetAudience": target,
+            "firstDM": fmt(_P67_FIRST_DM[0]),
+            "replyDraft": fmt(_P67_REPLY[0]),
+            "proposalDraft": fmt(_P67_PROPOSAL[0]),
+            "faqAnswers": _P67_FAQ,
+            "closingDraft": _P67_CLOSING[0],
+            "isDraft": True,
+            "autoSendAllowed": False,
+            "scriptVersion": "P67",
+        }
+        _p67_script_state["scriptDrafts"].append(draft)
+        if len(_p67_script_state["scriptDrafts"]) > 10:
+            _p67_script_state["scriptDrafts"] = _p67_script_state["scriptDrafts"][-10:]
+        _p67_script_state["lastDraft"] = draft
+        return draft
+
+
+# ============================================================
+# P68: Customer Success Runtime
+# ============================================================
+import uuid as _uuid_p68
+
+_p68_cs_state = {
+    "csAnalyses": [],
+    "lastAnalysis": None,
+    "csVersion": "P68",
+}
+
+def _p68_analyze_cs(onboarding_status, usage_progress, success_blockers, retention_risk):
+    # Support priority
+    if retention_risk > 0.7 or onboarding_status < 0.4:
+        support_priority = "HIGH"
+    elif retention_risk > 0.4 or usage_progress < 0.5:
+        support_priority = "MEDIUM"
+    else:
+        support_priority = "LOW"
+
+    # Success plan
+    success_plan = []
+    if onboarding_status < 0.6:
+        success_plan.append("オンボーディングの完了を優先サポート（設定ガイドを送付）")
+    if usage_progress < 0.5:
+        success_plan.append("主要機能の活用促進（ウェビナー・チュートリアル案内）")
+    if retention_risk > 0.5:
+        success_plan.append("解約リスク軽減のため個別フォローアップを実施")
+    if not success_plan:
+        success_plan.append("現在の利用状況は良好。定期チェックインを継続")
+
+    # Retention suggestions
+    retention_suggestions = []
+    if success_blockers:
+        retention_suggestions.append(f"主要ブロッカー「{success_blockers}」の解消を優先")
+    retention_suggestions.extend([
+        "成功事例の共有（同業他社の活用例）",
+        "次のステップ提案（上位プランの価値訴求）",
+    ])
+
+    return support_priority, success_plan, retention_suggestions
+
+@router.get("/axia-customer-success")
+async def p68_cs_get():
+    with _p46_lock:
+        state = dict(_p68_cs_state)
+        state["autoSendAllowed"] = False
+        state["runtimeClass"] = "AUTONOMOUS_SALES_CUSTOMER_SUCCESS_OPERATOR"
+        return state
+
+@router.post("/axia-customer-success/analyze")
+async def p68_cs_analyze(request: Request):
+    with _p46_lock:
+        body = await request.json()
+        onboarding_status = float(body.get("onboardingStatus", 0.7))
+        usage_progress = float(body.get("usageProgress", 0.6))
+        success_blockers = body.get("successBlockers", "")
+        next_support_action = body.get("nextSupportAction", "定期チェックイン")
+        retention_risk = float(body.get("retentionRisk", 0.3))
+
+        support_priority, success_plan, retention_suggestions = _p68_analyze_cs(
+            onboarding_status, usage_progress, success_blockers, retention_risk
+        )
+
+        record = {
+            "analysisId": str(_uuid_p68.uuid4()),
+            "onboardingStatus": onboarding_status,
+            "usageProgress": usage_progress,
+            "successBlockers": success_blockers,
+            "nextSupportAction": next_support_action,
+            "retentionRisk": retention_risk,
+            "supportPriority": support_priority,
+            "successPlan": success_plan,
+            "retentionSuggestions": retention_suggestions,
+            "csVersion": "P68",
+            "autoSendAllowed": False,
+        }
+        _p68_cs_state["csAnalyses"].append(record)
+        if len(_p68_cs_state["csAnalyses"]) > 20:
+            _p68_cs_state["csAnalyses"] = _p68_cs_state["csAnalyses"][-20:]
+        _p68_cs_state["lastAnalysis"] = record
+        return record
+
+
+# ============================================================
+# P69: Support Insight Runtime
+# ============================================================
+import uuid as _uuid_p69
+
+_p69_support_state = {
+    "supportAnalyses": [],
+    "lastAnalysis": None,
+    "supportVersion": "P69",
+}
+
+_P69_COMMON_QUESTIONS = [
+    "料金・プランの違いについて",
+    "解約・返金手続きについて",
+    "初期設定・オンボーディングについて",
+    "データのエクスポート方法について",
+    "他ツールとの連携について",
+]
+
+_P69_CONFUSING_POINTS = [
+    "プランの機能差がわかりにくい",
+    "解約フローが複雑に感じる",
+    "ダッシュボードの操作方法",
+    "通知設定の変更方法",
+]
+
+_P69_FAQ_DRAFTS = [
+    {"q": "無料トライアル後に自動課金されますか？", "a": "いいえ。トライアル終了後は自動的に無料プランに移行します。"},
+    {"q": "解約はいつでもできますか？", "a": "はい。マイページから即時解約が可能です。"},
+    {"q": "データは解約後も保持されますか？", "a": "解約後30日間はデータを保持します。その後は削除されます。"},
+    {"q": "複数のユーザーで使えますか？", "a": "Proプラン以上で最大5名まで追加可能です。"},
+]
+
+_P69_IMPROVEMENT_HINTS = [
+    "解約フローのUI改善（ステップ数削減）",
+    "プラン比較ページの充実（機能差を視覚化）",
+    "オンボーディングチュートリアルの追加",
+    "よくある質問をダッシュボード内に常時表示",
+]
+
+@router.get("/axia-support-insight")
+async def p69_support_get():
+    with _p46_lock:
+        state = dict(_p69_support_state)
+        state["autoSendAllowed"] = False
+        state["runtimeClass"] = "AUTONOMOUS_SALES_CUSTOMER_SUCCESS_OPERATOR"
+        return state
+
+@router.post("/axia-support-insight/analyze")
+async def p69_support_analyze(request: Request):
+    with _p46_lock:
+        body = await request.json()
+        support_load = body.get("supportLoad", "MEDIUM")
+        recent_tickets = body.get("recentTickets", [])
+        focus_area = body.get("focusArea", "general")
+
+        # Derive insights
+        common_questions = _P69_COMMON_QUESTIONS[:4]
+        confusing_points = _P69_CONFUSING_POINTS[:3]
+        faq_candidates = [f["q"] for f in _P69_FAQ_DRAFTS[:3]]
+        improvement_hints = _P69_IMPROVEMENT_HINTS[:3]
+
+        support_insights = {
+            "ticketVolumeTrend": "STABLE",
+            "topCategory": "料金・プラン",
+            "avgResolutionTime": "2.3時間",
+            "satisfactionScore": 4.2,
+        }
+
+        record = {
+            "analysisId": str(_uuid_p69.uuid4()),
+            "supportLoad": support_load,
+            "focusArea": focus_area,
+            "commonQuestions": common_questions,
+            "confusingPoints": confusing_points,
+            "faqCandidates": faq_candidates,
+            "productImprovementHints": improvement_hints,
+            "supportInsights": support_insights,
+            "faqDrafts": _P69_FAQ_DRAFTS,
+            "improvementHints": improvement_hints,
+            "supportVersion": "P69",
+            "autoSendAllowed": False,
+        }
+        _p69_support_state["supportAnalyses"].append(record)
+        if len(_p69_support_state["supportAnalyses"]) > 20:
+            _p69_support_state["supportAnalyses"] = _p69_support_state["supportAnalyses"][-20:]
+        _p69_support_state["lastAnalysis"] = record
+        return record
+
+
+# ============================================================
+# P70: Human Sales & CS Dashboard
+# ============================================================
+@router.get("/axia-sales-cs")
+async def p70_sales_cs_dashboard():
+    with _p46_lock:
+        lead = _p66_lead_state
+        script = _p67_script_state
+        cs = _p68_cs_state
+        support = _p69_support_state
+
+        # Lead quality
+        last_lead = lead.get("lastAnalysis") or {}
+        lead_type = last_lead.get("leadType", "UNKNOWN")
+        lead_score = last_lead.get("leadScore", 0)
+        next_action = last_lead.get("recommendedNextAction", "（未分析）")
+
+        # Sales drafts
+        last_script = script.get("lastDraft") or {}
+        first_dm = last_script.get("firstDM", "（未生成）")
+        reply_draft = last_script.get("replyDraft", "（未生成）")
+
+        # Customer health
+        last_cs = cs.get("lastAnalysis") or {}
+        support_priority = last_cs.get("supportPriority", "UNKNOWN")
+        cs_health = "GOOD" if support_priority == "LOW" else "WARNING" if support_priority == "MEDIUM" else "RISK"
+
+        # Support insights
+        last_support = support.get("lastAnalysis") or {}
+        faq_candidates = last_support.get("faqCandidates", ["料金・プランの違い", "解約手続き", "初期設定"])
+        confusing_points = last_support.get("confusingPoints", ["プラン機能差", "解約フロー"])
+
+        # Colors
+        lead_color = {"HOT": "#f85149", "WARM": "#d29922", "COLD": "#8b949e", "UNKNOWN": "#8b949e"}.get(lead_type, "#8b949e")
+        health_color = {"GOOD": "#3fb950", "WARNING": "#d29922", "RISK": "#f85149"}.get(cs_health, "#8b949e")
+
+        faq_html = "".join(f"<li>{q}</li>" for q in faq_candidates[:3])
+        confusing_html = "".join(f"<li>{p}</li>" for p in confusing_points[:3])
+
+        html = f"""<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AXIA Sales & CS Dashboard</title>
+<style>
+  body{{font-family:'Segoe UI',sans-serif;background:#0d1117;color:#e6edf3;margin:0;padding:24px}}
+  h1{{font-size:1.6rem;color:#58a6ff;margin-bottom:4px}}
+  .sub{{color:#8b949e;font-size:0.85rem;margin-bottom:24px}}
+  .grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:24px}}
+  .card{{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:20px}}
+  .card h3{{margin:0 0 8px;font-size:0.85rem;color:#8b949e;text-transform:uppercase;letter-spacing:.05em}}
+  .badge{{display:inline-block;padding:6px 16px;border-radius:20px;font-weight:700;font-size:1.1rem}}
+  .score{{font-size:2rem;font-weight:700}}
+  .section{{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:20px;margin-bottom:16px}}
+  .section h2{{margin:0 0 12px;font-size:1rem;color:#e6edf3}}
+  .draft-box{{background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:12px;margin-top:8px}}
+  .draft-label{{font-size:0.75rem;color:#8b949e;margin-bottom:4px}}
+  .draft-text{{font-size:0.85rem;color:#e6edf3;line-height:1.5}}
+  ul{{margin:0;padding-left:20px;color:#8b949e}}
+  ul li{{margin-bottom:6px;font-size:0.9rem}}
+  .footer{{margin-top:24px;text-align:center;font-size:0.75rem;color:#484f58}}
+  .safe-badge{{display:inline-block;background:#21262d;border:1px solid #30363d;border-radius:6px;padding:2px 10px;font-size:0.75rem;color:#8b949e;margin-top:8px}}
+</style>
+</head>
+<body>
+<h1>AXIA Sales & CS Dashboard</h1>
+<p class="sub">P70 Human Sales & CS OS — draft生成のみ・自動送信禁止</p>
+
+<div class="grid">
+  <div class="card">
+    <h3>Lead Quality</h3>
+    <span class="badge" style="background:{lead_color}22;color:{lead_color}">{lead_type}</span>
+    <div style="font-size:0.8rem;color:#8b949e;margin-top:6px">Score: {lead_score}/100</div>
+  </div>
+  <div class="card">
+    <h3>Customer Health</h3>
+    <span class="badge" style="background:{health_color}22;color:{health_color}">{cs_health}</span>
+    <div style="font-size:0.8rem;color:#8b949e;margin-top:6px">Priority: {support_priority}</div>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Recommended Next Action</h2>
+  <div style="color:#e6edf3;font-size:0.9rem">{next_action}</div>
+</div>
+
+<div class="section">
+  <h2>Sales Drafts</h2>
+  <div class="draft-box">
+    <div class="draft-label">初回DM案</div>
+    <div class="draft-text">{first_dm}</div>
+  </div>
+  <div class="draft-box">
+    <div class="draft-label">返信案</div>
+    <div class="draft-text">{reply_draft}</div>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Support Insights — FAQ候補</h2>
+  <ul>{faq_html}</ul>
+</div>
+
+<div class="section">
+  <h2>Support Insights — つまずきポイント</h2>
+  <ul>{confusing_html}</ul>
+</div>
+
+<div class="safe-badge">autoSendAllowed = false | draft生成のみ・送信には承認が必要</div>
+
+<div class="footer">
+  AXIA_RUNTIME_CLASS = AUTONOMOUS_SALES_CUSTOMER_SUCCESS_OPERATOR | P66-P70
+</div>
+</body>
+</html>"""
+        return HTMLResponse(content=html)
