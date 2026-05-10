@@ -2571,3 +2571,500 @@ async def axia_alignment_complete(body: dict):
     }
 
 # ─── End of P28 ──────────────────────────────────────────────────────────────
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# AXIA P29: Autonomous Team Coordination Runtime
+# Planner / Operator / Verifier / Reviewer / Recovery
+# Role Governance / Reviewer Gate / Inter-Role Timeline / Human Team View
+# ─────────────────────────────────────────────────────────────────────────────
+
+import threading as _p29_threading
+from datetime import datetime as _p29_dt, timezone as _p29_tz
+from collections import deque as _p29_deque
+
+# ─── P29 Role Definitions ────────────────────────────────────────────────────
+
+_P29_ROLES = {
+    "planner": {
+        "roleId": "planner",
+        "displayName": "Planner",
+        "icon": "🗺️",
+        "description": "goal分析・scope決定・execution plan・risk判定",
+        "allowedActions": ["analyze_goal", "set_scope", "create_plan", "assess_risk", "approve_plan"],
+        "forbiddenActions": ["write_code", "modify_file", "create_pr", "merge", "rollback"],
+    },
+    "operator": {
+        "roleId": "operator",
+        "displayName": "Operator",
+        "icon": "⚙️",
+        "description": "backup・write・diff・PR作成",
+        "allowedActions": ["backup", "write_file", "create_diff", "create_pr", "push_branch"],
+        "forbiddenActions": ["change_goal", "change_scope", "approve_merge", "verify", "rollback"],
+    },
+    "verifier": {
+        "roleId": "verifier",
+        "displayName": "Verifier",
+        "icon": "🔍",
+        "description": "FastAPI import・HTTP verify・browser verify・responsive・noise check",
+        "allowedActions": ["check_import", "http_verify", "browser_verify", "check_responsive", "noise_check"],
+        "forbiddenActions": ["write_file", "modify_code", "merge", "create_pr", "change_goal"],
+    },
+    "reviewer": {
+        "roleId": "reviewer",
+        "displayName": "Reviewer",
+        "icon": "👁️",
+        "description": "scope violation・artifact clean・secret scan・merge governance・completion gate",
+        "allowedActions": ["check_scope", "check_artifacts", "scan_secrets", "check_governance", "approve_merge", "block_merge"],
+        "forbiddenActions": ["write_code", "modify_file", "create_pr", "rollback", "change_goal"],
+    },
+    "recovery": {
+        "roleId": "recovery",
+        "displayName": "Recovery",
+        "icon": "🔄",
+        "description": "rollback・retry判断・safe stop・recovery plan",
+        "allowedActions": ["rollback", "assess_retry", "safe_stop", "create_recovery_plan", "restore_backup"],
+        "forbiddenActions": ["create_pr", "merge", "change_goal", "write_new_code", "approve"],
+    },
+}
+
+# ─── P29 State ───────────────────────────────────────────────────────────────
+
+_p29_lock = _p29_threading.RLock()
+
+_p29_role_states: dict = {
+    role_id: {
+        "roleId": role_id,
+        "status": "IDLE",
+        "currentTask": None,
+        "lastAction": None,
+        "lastActionAt": None,
+        "actionCount": 0,
+        "violations": [],
+    }
+    for role_id in _P29_ROLES
+}
+
+_p29_reviewer_gate = {
+    "status": "PENDING",  # PENDING / PASS / BLOCK
+    "checklist": {
+        "scopeClean": False,
+        "artifactClean": False,
+        "secretScan": False,
+        "governanceOk": False,
+        "completionGateOk": False,
+    },
+    "approvedAt": None,
+    "blockedReason": None,
+}
+
+_p29_timeline: _p29_deque = _p29_deque(maxlen=100)
+
+_p29_safe_stopped = False
+_p29_safe_stop_reason = None
+
+
+def _p29_now() -> str:
+    return _p29_dt.now(_p29_tz.utc).strftime("%Y-%m-%dT%H:%M:%S JST")
+
+
+def _p29_add_timeline(role_id: str, action: str, detail: str, result: str = "OK"):
+    with _p29_lock:
+        _p29_timeline.append({
+            "roleId": role_id,
+            "action": action,
+            "detail": detail,
+            "result": result,
+            "timestamp": _p29_now(),
+        })
+
+
+# ─── P29 Endpoints ───────────────────────────────────────────────────────────
+
+@router.get("/axia-team", response_class=HTMLResponse)
+async def axia_team_dashboard():
+    """P29: Human Team View Dashboard"""
+    with _p29_lock:
+        role_states = {k: dict(v) for k, v in _p29_role_states.items()}
+        reviewer_gate = dict(_p29_reviewer_gate)
+        timeline = list(_p29_timeline)[-15:]
+        safe_stopped = _p29_safe_stopped
+        safe_stop_reason = _p29_safe_stop_reason
+
+    now = _p29_now()
+
+    # Status badge colors
+    STATUS_COLORS = {
+        "IDLE": ("#484f58", "#8b949e"),
+        "RUNNING": ("#1a7f37", "#3fb950"),
+        "DONE": ("#0969da", "#58a6ff"),
+        "VERIFYING": ("#9e6a03", "#d29922"),
+        "WAITING": ("#6e40c9", "#bc8cff"),
+        "BLOCKED": ("#da3633", "#f85149"),
+        "FAILED": ("#da3633", "#f85149"),
+    }
+
+    # Role cards
+    role_cards_html = ""
+    for role_id, role_def in _P29_ROLES.items():
+        state = role_states[role_id]
+        status = state["status"]
+        bg, fg = STATUS_COLORS.get(status, ("#484f58", "#8b949e"))
+        task_text = state["currentTask"] or "—"
+        last_action = state["lastAction"] or "—"
+        last_at = state["lastActionAt"] or "—"
+        viol_count = len(state["violations"])
+        viol_badge = f"<span style='color:#f85149;font-size:11px;'>⚠️ {viol_count}件の違反</span>" if viol_count else ""
+
+        allowed_html = "".join(f"<span class='action-tag action-allowed'>{a}</span>" for a in role_def["allowedActions"])
+        forbidden_html = "".join(f"<span class='action-tag action-forbidden'>{a}</span>" for a in role_def["forbiddenActions"])
+
+        role_cards_html += f"""
+<div class='role-card'>
+  <div class='role-header'>
+    <span class='role-icon'>{role_def['icon']}</span>
+    <span class='role-name'>{role_def['displayName']}</span>
+    <span class='role-status' style='background:{bg};color:{fg};'>{status}</span>
+  </div>
+  <div class='role-desc'>{role_def['description']}</div>
+  <div class='role-meta'>
+    <div>現在のタスク: <strong>{task_text}</strong></div>
+    <div>最終アクション: {last_action} <span style='color:#484f58;font-size:11px;'>{last_at}</span></div>
+    <div>アクション数: {state['actionCount']} {viol_badge}</div>
+  </div>
+  <div class='role-actions'>
+    <div class='actions-label'>✅ 許可</div>
+    <div>{allowed_html}</div>
+    <div class='actions-label' style='margin-top:6px;'>🚫 禁止</div>
+    <div>{forbidden_html}</div>
+  </div>
+</div>"""
+
+    # Reviewer Gate
+    gate = reviewer_gate
+    gate_status = gate["status"]
+    gate_bg = "#1a7f37" if gate_status == "PASS" else ("#da3633" if gate_status == "BLOCK" else "#6e40c9")
+    gate_items_html = ""
+    for k, v in gate["checklist"].items():
+        icon = "✅" if v else "⏳"
+        cls = "gate-ok" if v else "gate-pending"
+        gate_items_html += f"<div class='gate-item {cls}'>{icon} {k}</div>"
+    merge_status = "MERGE 許可" if gate_status == "PASS" else "MERGE 禁止"
+    merge_cls = "merge-allowed" if gate_status == "PASS" else "merge-blocked"
+
+    # Timeline
+    timeline_html = ""
+    for event in reversed(timeline):
+        role_def = _P29_ROLES.get(event["roleId"], {})
+        icon = role_def.get("icon", "•")
+        result_color = "#3fb950" if event["result"] == "OK" else "#f85149"
+        timeline_html += f"""<div class='timeline-row'>
+  <span class='tl-icon'>{icon}</span>
+  <span class='tl-role'>{event['roleId']}</span>
+  <span class='tl-action'>{event['action']}</span>
+  <span class='tl-detail'>{event['detail']}</span>
+  <span class='tl-result' style='color:{result_color};'>{event['result']}</span>
+  <span class='tl-time'>{event['timestamp']}</span>
+</div>"""
+    if not timeline_html:
+        timeline_html = "<div style='color:#484f58;font-size:12px;'>イベントなし</div>"
+
+    # Safe Stop banner
+    safe_stop_banner = ""
+    if safe_stopped:
+        safe_stop_banner = f"<div class='safe-stop-banner'>🛑 SAFE STOP — {safe_stop_reason}</div>"
+
+    html = (
+        "<!DOCTYPE html><html lang='ja'><head>"
+        "<meta charset='UTF-8'>"
+        "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+        "<title>AXIA Team Coordination</title>"
+        "<style>"
+        "* { box-sizing: border-box; margin: 0; padding: 0; }"
+        "body { background: #0d1117; color: #e6edf3; font-family: 'Segoe UI', sans-serif; font-size: 14px; }"
+        ".header { display: flex; align-items: center; justify-content: space-between; padding: 16px 24px; background: #161b22; border-bottom: 1px solid #30363d; }"
+        ".header h1 { font-size: 20px; font-weight: 700; color: #58a6ff; }"
+        ".safe-stop-banner { background: #da3633; color: #fff; padding: 10px 24px; font-weight: 700; text-align: center; }"
+        ".gov-bar { display: flex; gap: 24px; padding: 10px 24px; background: #0d1117; border-bottom: 1px solid #21262d; font-size: 12px; color: #8b949e; }"
+        ".roles-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; padding: 20px 24px; }"
+        "@media (max-width: 700px) { .roles-grid { grid-template-columns: 1fr; } }"
+        ".role-card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px; }"
+        ".role-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }"
+        ".role-icon { font-size: 20px; }"
+        ".role-name { font-size: 16px; font-weight: 700; flex: 1; }"
+        ".role-status { padding: 3px 10px; border-radius: 10px; font-size: 11px; font-weight: 700; }"
+        ".role-desc { font-size: 12px; color: #8b949e; margin-bottom: 10px; }"
+        ".role-meta { font-size: 12px; color: #8b949e; margin-bottom: 10px; line-height: 1.8; }"
+        ".role-meta strong { color: #e6edf3; }"
+        ".role-actions { font-size: 11px; }"
+        ".actions-label { color: #8b949e; font-size: 11px; margin-bottom: 4px; }"
+        ".action-tag { display: inline-block; padding: 2px 6px; border-radius: 3px; margin: 2px; font-size: 10px; }"
+        ".action-allowed { background: #1a2e1a; color: #3fb950; border: 1px solid #1a7f37; }"
+        ".action-forbidden { background: #2e1a1a; color: #f85149; border: 1px solid #da3633; }"
+        ".bottom-section { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 0 24px 24px; }"
+        "@media (max-width: 700px) { .bottom-section { grid-template-columns: 1fr; } }"
+        ".card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px; }"
+        ".card-title { font-size: 13px; font-weight: 700; color: #8b949e; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; }"
+        ".gate-item { padding: 5px 8px; border-radius: 4px; margin-bottom: 4px; font-size: 12px; }"
+        ".gate-ok { background: #1a2e1a; color: #3fb950; }"
+        ".gate-pending { background: #1c2128; color: #8b949e; }"
+        ".merge-status { margin-top: 12px; padding: 8px 12px; border-radius: 6px; font-weight: 700; text-align: center; }"
+        ".merge-allowed { background: #1a7f37; color: #fff; }"
+        ".merge-blocked { background: #da3633; color: #fff; }"
+        ".timeline-row { display: grid; grid-template-columns: 24px 80px 100px 1fr 50px 140px; gap: 6px; align-items: center; padding: 5px 0; border-bottom: 1px solid #21262d; font-size: 11px; }"
+        ".tl-icon { text-align: center; }"
+        ".tl-role { color: #58a6ff; font-weight: 700; }"
+        ".tl-action { color: #d29922; }"
+        ".tl-detail { color: #8b949e; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }"
+        ".tl-result { font-weight: 700; }"
+        ".tl-time { color: #484f58; }"
+        ".footer { text-align: center; padding: 16px; font-size: 11px; color: #484f58; border-top: 1px solid #21262d; }"
+        "</style>"
+        "<script>"
+        "const NOISE = ['analysis','thinking','critic','learner'];"
+        "function sanitize(s) { if(typeof s!=='string') return ''; for(const n of NOISE){if(s.toLowerCase().includes(n)) return '';} return s; }"
+        "function autoRefresh() {"
+        "  fetch('/api/axia-team/state').then(r=>r.json()).then(d=>{"
+        "    const el=document.getElementById('team-time');"
+        "    if(el) el.textContent=sanitize(d.serverTime)||'';"
+        "  }).catch(()=>{});"
+        "}"
+        "setInterval(autoRefresh,10000);"
+        "</script>"
+        "</head><body>"
+        f"{safe_stop_banner}"
+        "<div class='header'>"
+        "  <h1>AXIA Team Coordination</h1>"
+        f"  <span id='team-time' style='font-size:12px;color:#8b949e'>{now}</span>"
+        f"  <span style='font-size:12px;color:#8b949e;'>P29 Runtime</span>"
+        "</div>"
+        "<div class='gov-bar'>"
+        f"  <span>Roles: {len(_P29_ROLES)}</span>"
+        f"  <span>Reviewer Gate: <strong style='color:{'#3fb950' if gate_status=='PASS' else '#f85149'};'>{gate_status}</strong></span>"
+        f"  <span>Safe Stop: {'🛑 YES' if safe_stopped else '✅ NO'}</span>"
+        f"  <span>Timeline Events: {len(timeline)}</span>"
+        "</div>"
+        "<div class='roles-grid'>"
+        f"{role_cards_html}"
+        "</div>"
+        "<div class='bottom-section'>"
+
+        # Reviewer Gate card
+        "<div class='card'>"
+        "  <div class='card-title'>👁️ Reviewer Gate</div>"
+        f"  {gate_items_html}"
+        f"  <div class='merge-status {merge_cls}'>{merge_status}</div>"
+        "</div>"
+
+        # Timeline card
+        "<div class='card'>"
+        "  <div class='card-title'>📋 Inter-Role Timeline</div>"
+        f"  {timeline_html}"
+        "</div>"
+
+        "</div>"
+        "<div class='footer'>"
+        "  AXIA_RUNTIME_CLASS = AUTONOMOUS_TEAM_COORDINATION_OPERATOR<br>"
+        f"  Team Version: P29 | Roles: {len(_P29_ROLES)} | {now}"
+        "</div>"
+        "</body></html>"
+    )
+    return HTMLResponse(content=html)
+
+
+@router.get("/axia-team/state")
+async def axia_team_state():
+    """P29: Team State JSON API"""
+    with _p29_lock:
+        role_states = {k: dict(v) for k, v in _p29_role_states.items()}
+        reviewer_gate = dict(_p29_reviewer_gate)
+        timeline = list(_p29_timeline)[-20:]
+        safe_stopped = _p29_safe_stopped
+        safe_stop_reason = _p29_safe_stop_reason
+
+    roles_with_def = {}
+    for role_id, state in role_states.items():
+        role_def = _P29_ROLES[role_id]
+        roles_with_def[role_id] = {
+            **state,
+            "allowedActions": role_def["allowedActions"],
+            "forbiddenActions": role_def["forbiddenActions"],
+            "displayName": role_def["displayName"],
+        }
+
+    return {
+        "teamVersion": "P29",
+        "roles": roles_with_def,
+        "reviewerGate": reviewer_gate,
+        "timeline": timeline,
+        "safeStop": {
+            "active": safe_stopped,
+            "reason": safe_stop_reason,
+        },
+        "serverTime": _p29_now(),
+    }
+
+
+@router.post("/axia-team/role/{role_id}/action")
+async def axia_team_role_action(role_id: str, body: dict):
+    """P29: Execute role action with governance check"""
+    global _p29_safe_stopped, _p29_safe_stop_reason
+
+    action = body.get("action", "")
+    task = body.get("task", "")
+    detail = body.get("detail", "")
+
+    if role_id not in _P29_ROLES:
+        return {"status": "ERROR", "message": f"Unknown role: {role_id}"}
+
+    role_def = _P29_ROLES[role_id]
+
+    # Role Governance check
+    if action in role_def["forbiddenActions"]:
+        violation = {
+            "action": action,
+            "reason": f"role {role_id} は {action} を実行できません",
+            "timestamp": _p29_now(),
+        }
+        with _p29_lock:
+            _p29_role_states[role_id]["violations"].append(violation)
+            _p29_safe_stopped = True
+            _p29_safe_stop_reason = f"ROLE_VIOLATION: {role_id} attempted forbidden action '{action}'"
+
+        _p29_add_timeline(role_id, action, f"ROLE_VIOLATION: {action}", "BLOCKED")
+
+        return {
+            "status": "ROLE_VIOLATION",
+            "safeStop": True,
+            "roleId": role_id,
+            "action": action,
+            "message": f"ROLE_VIOLATION STOP: {role_id} は {action} を実行できません",
+            "violation": violation,
+        }
+
+    # Execute action
+    with _p29_lock:
+        state = _p29_role_states[role_id]
+        state["status"] = "RUNNING"
+        state["currentTask"] = task or action
+        state["lastAction"] = action
+        state["lastActionAt"] = _p29_now()
+        state["actionCount"] += 1
+
+    _p29_add_timeline(role_id, action, detail or task, "OK")
+
+    return {
+        "status": "OK",
+        "roleId": role_id,
+        "action": action,
+        "task": task,
+        "message": f"{role_id} executed {action} successfully",
+    }
+
+
+@router.post("/axia-team/role/{role_id}/status")
+async def axia_team_role_status(role_id: str, body: dict):
+    """P29: Update role status"""
+    if role_id not in _P29_ROLES:
+        return {"status": "ERROR", "message": f"Unknown role: {role_id}"}
+
+    new_status = body.get("status", "IDLE")
+    task = body.get("task", None)
+
+    with _p29_lock:
+        _p29_role_states[role_id]["status"] = new_status
+        if task is not None:
+            _p29_role_states[role_id]["currentTask"] = task
+
+    _p29_add_timeline(role_id, "status_update", f"status → {new_status}", "OK")
+
+    return {
+        "status": "OK",
+        "roleId": role_id,
+        "newStatus": new_status,
+    }
+
+
+@router.post("/axia-team/reviewer/gate")
+async def axia_team_reviewer_gate(body: dict):
+    """P29: Reviewer Gate — PASS or BLOCK merge"""
+    action = body.get("action", "check")  # check / approve / block
+    checklist_update = body.get("checklist", {})
+    block_reason = body.get("blockReason", None)
+
+    with _p29_lock:
+        # Update checklist
+        for k, v in checklist_update.items():
+            if k in _p29_reviewer_gate["checklist"]:
+                _p29_reviewer_gate["checklist"][k] = bool(v)
+
+        all_pass = all(_p29_reviewer_gate["checklist"].values())
+
+        if action == "approve" and all_pass:
+            _p29_reviewer_gate["status"] = "PASS"
+            _p29_reviewer_gate["approvedAt"] = _p29_now()
+            _p29_role_states["reviewer"]["status"] = "DONE"
+            _p29_role_states["reviewer"]["lastAction"] = "approve_merge"
+            _p29_role_states["reviewer"]["lastActionAt"] = _p29_now()
+            result_status = "PASS"
+            merge_allowed = True
+        elif action == "block" or (action == "approve" and not all_pass):
+            _p29_reviewer_gate["status"] = "BLOCK"
+            _p29_reviewer_gate["blockedReason"] = block_reason or "チェックリスト未完了"
+            _p29_role_states["reviewer"]["status"] = "BLOCKED"
+            result_status = "BLOCK"
+            merge_allowed = False
+        else:
+            result_status = "PENDING"
+            merge_allowed = False
+
+        checklist = dict(_p29_reviewer_gate["checklist"])
+
+    _p29_add_timeline("reviewer", f"gate_{action}", f"status={result_status}", result_status)
+
+    return {
+        "status": result_status,
+        "mergeAllowed": merge_allowed,
+        "checklist": checklist,
+        "allChecklistPass": all_pass,
+        "message": "MERGE 許可" if merge_allowed else "MERGE 禁止 — Reviewer Gate未通過",
+    }
+
+
+@router.get("/axia-team/timeline")
+async def axia_team_timeline():
+    """P29: Inter-Role Timeline"""
+    with _p29_lock:
+        timeline = list(_p29_timeline)
+
+    return {
+        "teamVersion": "P29",
+        "timeline": timeline,
+        "count": len(timeline),
+        "serverTime": _p29_now(),
+    }
+
+
+@router.post("/axia-team/safe-stop")
+async def axia_team_safe_stop(body: dict):
+    """P29: Trigger safe stop"""
+    global _p29_safe_stopped, _p29_safe_stop_reason
+    reason = body.get("reason", "Manual safe stop")
+    with _p29_lock:
+        _p29_safe_stopped = True
+        _p29_safe_stop_reason = reason
+    _p29_add_timeline("recovery", "safe_stop", reason, "STOPPED")
+    return {"status": "SAFE_STOP", "reason": reason, "stoppedAt": _p29_now()}
+
+
+@router.post("/axia-team/safe-stop/reset")
+async def axia_team_safe_stop_reset():
+    """P29: Reset safe stop"""
+    global _p29_safe_stopped, _p29_safe_stop_reason
+    with _p29_lock:
+        _p29_safe_stopped = False
+        _p29_safe_stop_reason = None
+    _p29_add_timeline("recovery", "safe_stop_reset", "Safe stop cleared", "OK")
+    return {"status": "OK", "message": "Safe stop cleared"}
+
+# ─── End of P29 ──────────────────────────────────────────────────────────────
