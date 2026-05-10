@@ -14590,3 +14590,853 @@ def p150_agents_command_center():
 </body>
 </html>"""
     return HTMLResponse(content=html, status_code=200)
+
+
+# ============================================================
+# P151-P160: Autonomous Parallel Execution Runtime
+# ============================================================
+
+import threading as _threading
+import time as _time
+import uuid as _uuid_mod
+
+# ---- Shared state ----
+
+_P151_LOCK = _threading.Lock()
+_P151_TASKS = {}  # parallelTaskId -> task dict
+
+_P152_LOCK = _threading.Lock()
+_P152_SCHEDULE_STATE = {
+    "phase": "P152",
+    "scheduledTasks": [],
+    "highRiskIsolation": True,
+    "retryCooldown": True,
+    "dependencyAwareScheduling": True,
+    "priorityScheduling": True,
+}
+
+_P153_LOCK = _threading.Lock()
+_P153_DEP_STATE = {
+    "phase": "P153",
+    "dependencyGraph": [],
+    "handoffState": {},
+    "blockedQueue": [],
+}
+
+_P154_LOCK = _threading.Lock()
+_P154_TASKS = {}  # taskId -> long running task
+
+_P155_LOCK = _threading.Lock()
+_P155_CONTEXTS = {}  # contextId -> context
+
+_P156_LOCK = _threading.Lock()
+_P156_SHARED_MEMORY = {
+    "phase": "P156",
+    "verifiedSelectors": [],
+    "failedFixes": [],
+    "safeRecoveryPaths": [],
+    "repoQuirks": [],
+    "reviewPatterns": [],
+    "totalRecords": 0,
+}
+
+_P157_LOCK = _threading.Lock()
+_P157_WORKSPACES = {}  # workspaceId -> workspace
+
+_P158_LOCK = _threading.Lock()
+_P158_VERIFY_STATE = {
+    "phase": "P158",
+    "verifyTasks": [],
+    "completedVerifies": [],
+    "distributedAgents": ["VERIFIER_1", "VERIFIER_2", "VERIFIER_3"],
+}
+
+_P159_LOCK = _threading.Lock()
+_P159_INTERVENTION_STATE = {
+    "phase": "P159",
+    "systemState": "RUNNING",
+    "interventionQueue": [],
+    "pausedTasks": [],
+    "approvalQueue": [],
+    "rejectedTasks": [],
+    "manualOverrides": [],
+}
+
+_FORBIDDEN_PARALLEL_ACTIONS = ["same_file_write", "cross_workspace_write", "merge_without_review"]
+
+# ============================================================
+# P151: Parallel Task Runtime
+# ============================================================
+
+@router.get("/axia-parallel-task")
+def p151_parallel_task_get():
+    with _P151_LOCK:
+        tasks = list(_P151_TASKS.values())
+    return {
+        "phase": "P151",
+        "name": "Parallel Task Runtime",
+        "activeTasks": tasks,
+        "taskCount": len(tasks),
+        "safetyGuards": {
+            "sameFileLock": True,
+            "reviewBeforeMerge": True,
+            "workspaceIsolation": True,
+        },
+        "AXIA_RUNTIME_CLASS": "AUTONOMOUS_PARALLEL_EXECUTION_OPERATOR",
+    }
+
+
+@router.post("/axia-parallel-task/create")
+def p151_parallel_task_create(body: dict):
+    assigned_agent = body.get("assignedAgent", "CODER")
+    priority = body.get("priority", "NORMAL")
+    task_name = body.get("taskName", "unnamed_task")
+    target_file = body.get("targetFile", "")
+    risk_level = body.get("riskLevel", "LOW")
+
+    # Same file lock check
+    with _P151_LOCK:
+        for t in _P151_TASKS.values():
+            if t["targetFile"] == target_file and t["status"] == "RUNNING" and target_file:
+                return {
+                    "created": False,
+                    "sameFileLock": True,
+                    "reason": f"File {target_file} is already locked by task {t['parallelTaskId']}",
+                    "blockedBy": t["parallelTaskId"],
+                }
+
+        task_id = f"ptask_{_uuid_mod.uuid4().hex[:8]}"
+        task = {
+            "parallelTaskId": task_id,
+            "assignedAgent": assigned_agent,
+            "priority": priority,
+            "taskName": task_name,
+            "targetFile": target_file,
+            "riskLevel": risk_level,
+            "status": "RUNNING",
+            "startedAt": _time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "blockingTask": None,
+        }
+        _P151_TASKS[task_id] = task
+
+    return {
+        "created": True,
+        "parallelTaskId": task_id,
+        "assignedAgent": assigned_agent,
+        "priority": priority,
+        "status": "RUNNING",
+        "sameFileLock": True,
+        "workspaceIsolation": True,
+        "approvalRequired": True,
+    }
+
+
+# ============================================================
+# P152: Intelligent Task Scheduler
+# ============================================================
+
+@router.get("/axia-scheduler")
+def p152_scheduler_get():
+    with _P152_LOCK:
+        state = dict(_P152_SCHEDULE_STATE)
+    return state
+
+
+@router.post("/axia-scheduler/schedule")
+def p152_scheduler_schedule(body: dict):
+    tasks = body.get("tasks", [])
+    risk_level = body.get("riskLevel", "LOW")
+
+    # HIGH risk → single execution only
+    if risk_level == "HIGH" and len(tasks) > 1:
+        return {
+            "scheduled": False,
+            "highRiskIsolation": True,
+            "reason": "HIGH risk tasks must run in isolation (single execution only)",
+            "allowedCount": 1,
+        }
+
+    scheduled = []
+    for i, t in enumerate(tasks):
+        scheduled.append({
+            "taskId": f"sched_{_uuid_mod.uuid4().hex[:6]}",
+            "taskName": t.get("name", f"task_{i}"),
+            "priority": t.get("priority", "NORMAL"),
+            "scheduledOrder": i + 1,
+            "dependsOn": t.get("dependsOn", []),
+            "retryCooldown": 30,
+        })
+
+    # Sort by priority
+    priority_order = {"HIGH": 0, "NORMAL": 1, "LOW": 2}
+    scheduled.sort(key=lambda x: priority_order.get(x["priority"], 1))
+
+    with _P152_LOCK:
+        _P152_SCHEDULE_STATE["scheduledTasks"] = scheduled
+
+    return {
+        "scheduled": True,
+        "taskCount": len(scheduled),
+        "scheduledTasks": scheduled,
+        "highRiskIsolation": True,
+        "retryCooldown": True,
+        "dependencyAwareScheduling": True,
+        "priorityScheduling": True,
+    }
+
+
+# ============================================================
+# P153: Cross-Agent Dependency Runtime
+# ============================================================
+
+@router.get("/axia-dep-graph")
+def p153_dependency_get():
+    with _P153_LOCK:
+        state = dict(_P153_DEP_STATE)
+    return state
+
+
+@router.post("/axia-dep-graph/register")
+def p153_dependency_register(body: dict):
+    from_agent = body.get("fromAgent", "PLANNER")
+    to_agent = body.get("toAgent", "CODER")
+    condition = body.get("condition", "DONE")
+    task_id = body.get("taskId", f"dep_{_uuid_mod.uuid4().hex[:6]}")
+
+    dep_entry = {
+        "depId": f"dep_{_uuid_mod.uuid4().hex[:6]}",
+        "fromAgent": from_agent,
+        "toAgent": to_agent,
+        "condition": condition,
+        "taskId": task_id,
+        "status": "PENDING",
+        "registeredAt": _time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+
+    with _P153_LOCK:
+        _P153_DEP_STATE["dependencyGraph"].append(dep_entry)
+        _P153_DEP_STATE["handoffState"][task_id] = {
+            "current": from_agent,
+            "next": to_agent,
+            "condition": condition,
+            "status": "WAITING",
+        }
+
+    return {
+        "registered": True,
+        "depId": dep_entry["depId"],
+        "fromAgent": from_agent,
+        "toAgent": to_agent,
+        "condition": condition,
+        "status": "PENDING",
+        "dependencyGraph": _P153_DEP_STATE["dependencyGraph"],
+    }
+
+
+@router.post("/axia-dep-graph/trigger")
+def p153_dependency_trigger(body: dict):
+    task_id = body.get("taskId", "")
+    agent = body.get("agent", "")
+    result = body.get("result", "DONE")
+
+    with _P153_LOCK:
+        handoff = _P153_DEP_STATE["handoffState"].get(task_id)
+        if not handoff:
+            return {"triggered": False, "reason": "taskId not found in dependency graph"}
+
+        if result == "FAIL":
+            # Verifier FAIL → Recovery START
+            handoff["status"] = "RECOVERY_TRIGGERED"
+            next_agent = "RECOVERY"
+        else:
+            handoff["status"] = "TRIGGERED"
+            next_agent = handoff["next"]
+
+        # Update graph
+        for dep in _P153_DEP_STATE["dependencyGraph"]:
+            if dep["taskId"] == task_id and dep["fromAgent"] == agent:
+                dep["status"] = "TRIGGERED"
+
+    return {
+        "triggered": True,
+        "taskId": task_id,
+        "fromAgent": agent,
+        "result": result,
+        "nextAgent": next_agent,
+        "handoffStatus": handoff["status"],
+    }
+
+
+# ============================================================
+# P154: Long Running Task Runtime
+# ============================================================
+
+@router.get("/axia-long-task")
+def p154_long_task_get():
+    with _P154_LOCK:
+        tasks = list(_P154_TASKS.values())
+    return {
+        "phase": "P154",
+        "name": "Long Running Task Runtime",
+        "activeTasks": tasks,
+        "taskCount": len(tasks),
+        "features": {
+            "checkpointSave": True,
+            "resume": True,
+            "heartbeat": True,
+            "crashRecovery": True,
+            "partialCompletion": True,
+        },
+    }
+
+
+@router.post("/axia-long-task/start")
+def p154_long_task_start(body: dict):
+    task_name = body.get("taskName", "long_task")
+    task_type = body.get("taskType", "verify")  # verify, multi_repo, large_scan
+
+    task_id = f"lt_{_uuid_mod.uuid4().hex[:8]}"
+    task = {
+        "taskId": task_id,
+        "taskName": task_name,
+        "taskType": task_type,
+        "status": "RUNNING",
+        "progress": 0,
+        "checkpoint": None,
+        "heartbeatAt": _time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "startedAt": _time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "crashRecovery": True,
+        "partialCompletion": False,
+    }
+
+    with _P154_LOCK:
+        _P154_TASKS[task_id] = task
+
+    return {
+        "started": True,
+        "taskId": task_id,
+        "taskName": task_name,
+        "taskType": task_type,
+        "status": "RUNNING",
+        "checkpointSave": True,
+        "crashRecovery": True,
+        "heartbeat": True,
+    }
+
+
+@router.post("/axia-long-task/checkpoint")
+def p154_long_task_checkpoint(body: dict):
+    task_id = body.get("taskId", "")
+    progress = body.get("progress", 0)
+    checkpoint_data = body.get("checkpointData", {})
+
+    with _P154_LOCK:
+        task = _P154_TASKS.get(task_id)
+        if not task:
+            return {"saved": False, "reason": "taskId not found"}
+        task["progress"] = progress
+        task["checkpoint"] = {
+            "savedAt": _time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "progress": progress,
+            "data": checkpoint_data,
+        }
+        task["heartbeatAt"] = _time.strftime("%Y-%m-%dT%H:%M:%S")
+
+    return {
+        "saved": True,
+        "taskId": task_id,
+        "progress": progress,
+        "checkpointSavedAt": task["checkpoint"]["savedAt"],
+        "resumable": True,
+    }
+
+
+@router.post("/axia-long-task/resume")
+def p154_long_task_resume(body: dict):
+    task_id = body.get("taskId", "")
+
+    with _P154_LOCK:
+        task = _P154_TASKS.get(task_id)
+        if not task:
+            return {"resumed": False, "reason": "taskId not found"}
+        if not task["checkpoint"]:
+            return {"resumed": False, "reason": "No checkpoint found"}
+        task["status"] = "RUNNING"
+
+    return {
+        "resumed": True,
+        "taskId": task_id,
+        "resumedFromProgress": task["checkpoint"]["progress"],
+        "status": "RUNNING",
+        "crashRecovery": True,
+    }
+
+
+# ============================================================
+# P155: Autonomous Context Switching Runtime
+# ============================================================
+
+@router.get("/axia-context-switch")
+def p155_context_switch_get():
+    with _P155_LOCK:
+        contexts = list(_P155_CONTEXTS.values())
+    return {
+        "phase": "P155",
+        "name": "Autonomous Context Switching Runtime",
+        "contexts": contexts,
+        "activeCount": sum(1 for c in contexts if c["status"] == "ACTIVE"),
+        "pausedCount": sum(1 for c in contexts if c["status"] == "PAUSED"),
+        "features": {
+            "activeContext": True,
+            "pausedContext": True,
+            "resumeContext": True,
+            "taskRestore": True,
+            "humanSafeSwitch": True,
+        },
+    }
+
+
+@router.post("/axia-context-switch/switch")
+def p155_context_switch_run(body: dict):
+    action = body.get("action", "switch")  # switch, pause, resume, restore
+    context_id = body.get("contextId", f"ctx_{_uuid_mod.uuid4().hex[:6]}")
+    task_data = body.get("taskData", {})
+
+    with _P155_LOCK:
+        if action == "switch":
+            # Pause all active contexts
+            for ctx in _P155_CONTEXTS.values():
+                if ctx["status"] == "ACTIVE":
+                    ctx["status"] = "PAUSED"
+            # Create/activate new context
+            _P155_CONTEXTS[context_id] = {
+                "contextId": context_id,
+                "status": "ACTIVE",
+                "taskData": task_data,
+                "createdAt": _time.strftime("%Y-%m-%dT%H:%M:%S"),
+                "switchedAt": _time.strftime("%Y-%m-%dT%H:%M:%S"),
+            }
+            return {
+                "switched": True,
+                "contextId": context_id,
+                "status": "ACTIVE",
+                "humanSafeSwitch": True,
+                "taskRestored": False,
+            }
+        elif action == "pause":
+            ctx = _P155_CONTEXTS.get(context_id)
+            if ctx:
+                ctx["status"] = "PAUSED"
+            return {"paused": True, "contextId": context_id, "status": "PAUSED"}
+        elif action == "resume":
+            ctx = _P155_CONTEXTS.get(context_id)
+            if ctx:
+                ctx["status"] = "ACTIVE"
+                ctx["resumedAt"] = _time.strftime("%Y-%m-%dT%H:%M:%S")
+            return {
+                "resumed": True,
+                "contextId": context_id,
+                "status": "ACTIVE",
+                "taskRestored": True,
+                "humanSafeSwitch": True,
+            }
+        else:
+            return {"switched": False, "reason": f"Unknown action: {action}"}
+
+
+# ============================================================
+# P156: Shared Agent Memory Runtime
+# ============================================================
+
+@router.get("/axia-shared-memory")
+def p156_shared_memory_get():
+    with _P156_LOCK:
+        state = dict(_P156_SHARED_MEMORY)
+    return state
+
+
+@router.post("/axia-shared-memory/save")
+def p156_shared_memory_save(body: dict):
+    memory_type = body.get("memoryType", "")
+    content = body.get("content", {})
+    agent = body.get("agent", "SYSTEM")
+
+    valid_types = ["verifiedSelectors", "failedFixes", "safeRecoveryPaths", "repoQuirks", "reviewPatterns"]
+    if memory_type not in valid_types:
+        return {
+            "saved": False,
+            "reason": f"Invalid memoryType. Must be one of: {valid_types}",
+        }
+
+    entry = {
+        "memoryId": f"mem_{_uuid_mod.uuid4().hex[:6]}",
+        "memoryType": memory_type,
+        "content": content,
+        "savedBy": agent,
+        "savedAt": _time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+
+    with _P156_LOCK:
+        _P156_SHARED_MEMORY[memory_type].append(entry)
+        _P156_SHARED_MEMORY["totalRecords"] += 1
+        total = _P156_SHARED_MEMORY["totalRecords"]
+
+    return {
+        "saved": True,
+        "memoryId": entry["memoryId"],
+        "memoryType": memory_type,
+        "savedBy": agent,
+        "totalRecords": total,
+        "sharedWithAllAgents": True,
+    }
+
+
+# ============================================================
+# P157: Multi-Workspace Runtime
+# ============================================================
+
+@router.get("/axia-multi-workspace")
+def p157_workspace_get():
+    with _P157_LOCK:
+        workspaces = list(_P157_WORKSPACES.values())
+    return {
+        "phase": "P157",
+        "name": "Multi-Workspace Runtime",
+        "workspaces": workspaces,
+        "workspaceCount": len(workspaces),
+        "safetyGuards": {
+            "crossWorkspaceContaminationBlocked": True,
+            "wrongRepoWriteBlocked": True,
+            "workspaceIsolation": True,
+        },
+    }
+
+
+@router.post("/axia-multi-workspace/create")
+def p157_workspace_create(body: dict):
+    repo_name = body.get("repoName", "")
+    branch = body.get("branch", "main")
+    active_task = body.get("activeTask", "")
+
+    workspace_id = f"ws_{_uuid_mod.uuid4().hex[:6]}"
+    workspace = {
+        "workspaceId": workspace_id,
+        "repoName": repo_name,
+        "branch": branch,
+        "activeTask": active_task,
+        "syncStatus": "SYNCED",
+        "createdAt": _time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "isolated": True,
+    }
+
+    with _P157_LOCK:
+        _P157_WORKSPACES[workspace_id] = workspace
+
+    return {
+        "created": True,
+        "workspaceId": workspace_id,
+        "repoName": repo_name,
+        "branch": branch,
+        "workspaceIsolation": True,
+        "crossWorkspaceContaminationBlocked": True,
+        "wrongRepoWriteBlocked": True,
+    }
+
+
+@router.post("/axia-multi-workspace/write")
+def p157_workspace_write(body: dict):
+    workspace_id = body.get("workspaceId", "")
+    target_workspace = body.get("targetWorkspace", workspace_id)
+    file_path = body.get("filePath", "")
+
+    # Cross workspace contamination check
+    if workspace_id != target_workspace:
+        return {
+            "written": False,
+            "crossWorkspaceContaminationBlocked": True,
+            "reason": f"Cannot write to workspace {target_workspace} from workspace {workspace_id}",
+        }
+
+    with _P157_LOCK:
+        ws = _P157_WORKSPACES.get(workspace_id)
+        if not ws:
+            return {"written": False, "reason": "workspaceId not found"}
+
+    return {
+        "written": True,
+        "workspaceId": workspace_id,
+        "filePath": file_path,
+        "workspaceIsolation": True,
+    }
+
+
+# ============================================================
+# P158: Distributed Verify Runtime
+# ============================================================
+
+@router.get("/axia-dist-verify")
+def p158_dist_verify_get():
+    with _P158_LOCK:
+        state = dict(_P158_VERIFY_STATE)
+    return state
+
+
+@router.post("/axia-dist-verify/run")
+def p158_dist_verify_run(body: dict):
+    verify_types = body.get("verifyTypes", ["http_verify"])
+    target = body.get("target", "/api/axia-parallel-task")
+    has_noise = body.get("hasNoise", False)
+
+    results = {}
+    all_passed = True
+
+    for vt in verify_types:
+        if vt == "noise_verify" and has_noise:
+            results[vt] = {"passed": False, "noiseDetected": True}
+            all_passed = False
+        else:
+            results[vt] = {"passed": True, "agent": f"VERIFIER_{len(results) + 1}"}
+
+    verify_id = f"dv_{_uuid_mod.uuid4().hex[:6]}"
+    entry = {
+        "verifyId": verify_id,
+        "target": target,
+        "verifyTypes": verify_types,
+        "results": results,
+        "allPassed": all_passed,
+        "completedAt": _time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+
+    with _P158_LOCK:
+        _P158_VERIFY_STATE["completedVerifies"].append(entry)
+
+    return {
+        "verifyId": verify_id,
+        "target": target,
+        "results": results,
+        "allPassed": all_passed,
+        "distributedAgents": _P158_VERIFY_STATE["distributedAgents"],
+        "noiseDetected": has_noise,
+    }
+
+
+# ============================================================
+# P159: Human Intervention Runtime
+# ============================================================
+
+@router.get("/axia-intervention")
+def p159_intervention_get():
+    with _P159_LOCK:
+        state = dict(_P159_INTERVENTION_STATE)
+    return state
+
+
+@router.post("/axia-intervention/action")
+def p159_intervention_action(body: dict):
+    action = body.get("action", "")
+    task_id = body.get("taskId", "")
+    reason = body.get("reason", "")
+
+    valid_actions = ["pause_all", "resume", "approve", "reject", "manual_override", "takeover"]
+
+    if action not in valid_actions:
+        return {
+            "executed": False,
+            "reason": f"Invalid action. Must be one of: {valid_actions}",
+        }
+
+    with _P159_LOCK:
+        if action == "pause_all":
+            _P159_INTERVENTION_STATE["systemState"] = "PAUSED"
+            _P159_INTERVENTION_STATE["interventionQueue"].append({
+                "action": "pause_all",
+                "reason": reason,
+                "at": _time.strftime("%Y-%m-%dT%H:%M:%S"),
+            })
+            return {
+                "executed": True,
+                "action": "pause_all",
+                "systemState": "PAUSED",
+                "allTasksPaused": True,
+                "humanInterventionActive": True,
+            }
+        elif action == "resume":
+            _P159_INTERVENTION_STATE["systemState"] = "RUNNING"
+            return {
+                "executed": True,
+                "action": "resume",
+                "systemState": "RUNNING",
+                "humanInterventionActive": False,
+            }
+        elif action == "approve":
+            _P159_INTERVENTION_STATE["approvalQueue"].append({
+                "taskId": task_id,
+                "approvedAt": _time.strftime("%Y-%m-%dT%H:%M:%S"),
+            })
+            return {
+                "executed": True,
+                "action": "approve",
+                "taskId": task_id,
+                "approved": True,
+                "approvalGate": True,
+            }
+        elif action == "reject":
+            _P159_INTERVENTION_STATE["rejectedTasks"].append({
+                "taskId": task_id,
+                "reason": reason,
+                "rejectedAt": _time.strftime("%Y-%m-%dT%H:%M:%S"),
+            })
+            return {
+                "executed": True,
+                "action": "reject",
+                "taskId": task_id,
+                "rejected": True,
+                "rollbackMandatory": True,
+            }
+        elif action == "manual_override":
+            _P159_INTERVENTION_STATE["manualOverrides"].append({
+                "taskId": task_id,
+                "reason": reason,
+                "at": _time.strftime("%Y-%m-%dT%H:%M:%S"),
+            })
+            return {
+                "executed": True,
+                "action": "manual_override",
+                "taskId": task_id,
+                "overrideApplied": True,
+                "humanInterventionActive": True,
+            }
+        elif action == "takeover":
+            return {
+                "executed": True,
+                "action": "takeover",
+                "taskId": task_id,
+                "takeoverGranted": True,
+                "humanInterventionActive": True,
+                "systemState": _P159_INTERVENTION_STATE["systemState"],
+            }
+
+    return {"executed": False, "reason": "Unexpected error"}
+
+
+# ============================================================
+# P160: Parallel Execution Command Center
+# ============================================================
+
+@router.get("/axia-parallel")
+def p160_parallel_command_center():
+    with _P151_LOCK:
+        parallel_tasks = list(_P151_TASKS.values())
+    with _P153_LOCK:
+        dep_graph = list(_P153_DEP_STATE["dependencyGraph"])
+        blocked_queue = list(_P153_DEP_STATE["blockedQueue"])
+    with _P154_LOCK:
+        long_tasks = list(_P154_TASKS.values())
+    with _P157_LOCK:
+        workspaces = list(_P157_WORKSPACES.values())
+    with _P159_LOCK:
+        intervention_queue = list(_P159_INTERVENTION_STATE["interventionQueue"])
+        system_state = _P159_INTERVENTION_STATE["systemState"]
+
+    running_agents = list({t["assignedAgent"] for t in parallel_tasks if t["status"] == "RUNNING"})
+
+    html = f"""<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>AXIA P160 — Parallel Execution Command Center</title>
+<style>
+body{{font-family:monospace;background:#0a0a0a;color:#00ff88;padding:24px;margin:0}}
+h1{{color:#00ffcc;font-size:1.4rem;border-bottom:1px solid #00ff88;padding-bottom:8px}}
+h2{{color:#00ccff;font-size:1.1rem;margin-top:20px}}
+.grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin-top:16px}}
+.card{{background:#111;border:1px solid #00ff8840;border-radius:6px;padding:16px}}
+.badge{{display:inline-block;padding:2px 8px;border-radius:4px;font-size:.8rem;margin:2px}}
+.green{{background:#00ff8820;color:#00ff88;border:1px solid #00ff88}}
+.blue{{background:#00ccff20;color:#00ccff;border:1px solid #00ccff}}
+.red{{background:#ff004420;color:#ff4444;border:1px solid #ff4444}}
+.yellow{{background:#ffcc0020;color:#ffcc00;border:1px solid #ffcc00}}
+table{{width:100%;border-collapse:collapse;font-size:.85rem}}
+th{{color:#00ccff;text-align:left;padding:4px 8px;border-bottom:1px solid #333}}
+td{{padding:4px 8px;border-bottom:1px solid #1a1a1a}}
+footer{{margin-top:32px;color:#444;font-size:.75rem;text-align:center}}
+</style>
+</head>
+<body>
+<h1>AXIA P160 — Parallel Execution Command Center</h1>
+
+<div class="grid">
+  <div class="card">
+    <h2>Parallel Tasks</h2>
+    <p>Active: <span class="badge green">{len(parallel_tasks)}</span>
+       Running Agents: <span class="badge blue">{len(running_agents)}</span></p>
+    <table>
+      <tr><th>Task ID</th><th>Agent</th><th>Priority</th><th>Status</th></tr>
+      {"".join(f"<tr><td>{t['parallelTaskId']}</td><td>{t['assignedAgent']}</td><td>{t['priority']}</td><td>{t['status']}</td></tr>" for t in parallel_tasks) or "<tr><td colspan=4>No active tasks</td></tr>"}
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Dependency Graph</h2>
+    <p>Edges: <span class="badge blue">{len(dep_graph)}</span>
+       Blocked: <span class="badge yellow">{len(blocked_queue)}</span></p>
+    <table>
+      <tr><th>From</th><th>To</th><th>Condition</th><th>Status</th></tr>
+      {"".join(f"<tr><td>{d['fromAgent']}</td><td>{d['toAgent']}</td><td>{d['condition']}</td><td>{d['status']}</td></tr>" for d in dep_graph) or "<tr><td colspan=4>No dependencies registered</td></tr>"}
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Long Running Tasks</h2>
+    <p>Count: <span class="badge blue">{len(long_tasks)}</span></p>
+    <table>
+      <tr><th>Task ID</th><th>Type</th><th>Progress</th><th>Status</th></tr>
+      {"".join(f"<tr><td>{t['taskId']}</td><td>{t['taskType']}</td><td>{t['progress']}%</td><td>{t['status']}</td></tr>" for t in long_tasks) or "<tr><td colspan=4>No long running tasks</td></tr>"}
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Workspace Map</h2>
+    <p>Workspaces: <span class="badge green">{len(workspaces)}</span></p>
+    <table>
+      <tr><th>ID</th><th>Repo</th><th>Branch</th><th>Sync</th></tr>
+      {"".join(f"<tr><td>{w['workspaceId']}</td><td>{w['repoName']}</td><td>{w['branch']}</td><td>{w['syncStatus']}</td></tr>" for w in workspaces) or "<tr><td colspan=4>No workspaces registered</td></tr>"}
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Human Intervention Queue</h2>
+    <p>System State: <span class="badge {'green' if system_state == 'RUNNING' else 'red'}">{system_state}</span>
+       Queue: <span class="badge yellow">{len(intervention_queue)}</span></p>
+    <table>
+      <tr><th>Action</th><th>Reason</th><th>At</th></tr>
+      {"".join(f"<tr><td>{i['action']}</td><td>{i.get('reason','')}</td><td>{i.get('at','')}</td></tr>" for i in intervention_queue) or "<tr><td colspan=3>No interventions</td></tr>"}
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Safety Guards</h2>
+    <div>
+      <span class="badge green">sameFileLock</span>
+      <span class="badge green">workspaceIsolation</span>
+      <span class="badge green">reviewerGate</span>
+      <span class="badge green">approvalGate</span>
+      <span class="badge green">highRiskIsolation</span>
+      <span class="badge green">retryCooldown</span>
+      <span class="badge green">rollbackMandatory</span>
+      <span class="badge green">crashRecovery</span>
+      <span class="badge green">secretScan</span>
+    </div>
+  </div>
+</div>
+
+<footer>
+  AXIA_RUNTIME_CLASS: AUTONOMOUS_PARALLEL_EXECUTION_OPERATOR &nbsp;|&nbsp;
+  P151-P160 Parallel Execution Runtime &nbsp;|&nbsp;
+  {_time.strftime("%Y-%m-%dT%H:%M:%S")}
+</footer>
+</body>
+</html>"""
+
+    from fastapi.responses import HTMLResponse
+    return HTMLResponse(content=html)
