@@ -1610,3 +1610,427 @@ async def axia_autonomous_dashboard():
         '</body></html>'
     )
     return HTMLResponse(content=html)
+
+
+# ─────────────────────────────────────────────────────────
+# AXIA P27 — Autonomous Multi-Task Work Queue Runtime
+# ─────────────────────────────────────────────────────────
+import threading as _p27_threading
+import json as _p27_json
+import time as _p27_time
+import uuid as _p27_uuid
+from datetime import datetime as _p27_dt, timezone as _p27_tz
+
+_p27_lock = _p27_threading.Lock()
+_p27_queue = []   # list of task dicts
+_p27_memory = []  # completed/failed history
+
+_P27_STATES = [
+    "queued", "planning", "running", "waiting_approval",
+    "blocked", "retrying", "completed", "failed", "paused"
+]
+
+_P27_PRIORITY = {"HIGH": 0, "MEDIUM": 1, "LOW": 2}
+
+_P27_BLOCKED_KEYWORDS = [
+    "db migration", "auth redesign", "payment", "infra", "deploy rewrite",
+    "secret", "delete repository", "drop table"
+]
+
+_P27_GOVERNANCE = {
+    "max_running": 3,
+    "max_browser_sessions": 2,
+    "max_merge_per_hour": 5,
+    "merge_count_this_hour": 0,
+    "merge_hour_start": None
+}
+
+_p27_queue = [
+    {
+        "id": "task-001",
+        "title": "Runtime Dashboard改善",
+        "description": "axia-dashboardのUIを改善する",
+        "priority": "HIGH",
+        "state": "running",
+        "risk": "MEDIUM",
+        "retry_count": 0,
+        "max_retries": 3,
+        "created_at": "2026-05-10T10:00:00Z",
+        "updated_at": "2026-05-10T10:05:00Z",
+        "blocked_reason": None,
+        "approval_required": False,
+        "eta_seconds": 120,
+        "repo": "kyotei-mvp-backend-FastAPI-Render-"
+    },
+    {
+        "id": "task-002",
+        "title": "PR #8 approval待ち",
+        "description": "PR #8のmerge承認を待っている",
+        "priority": "HIGH",
+        "state": "waiting_approval",
+        "risk": "MEDIUM",
+        "retry_count": 0,
+        "max_retries": 3,
+        "created_at": "2026-05-10T09:30:00Z",
+        "updated_at": "2026-05-10T10:00:00Z",
+        "blocked_reason": "ユーザー承認待ち",
+        "approval_required": True,
+        "eta_seconds": None,
+        "repo": "kyotei-mvp-backend-FastAPI-Render-"
+    },
+    {
+        "id": "task-003",
+        "title": "Browser Verify失敗",
+        "description": "P26のBrowser Verifyが失敗した",
+        "priority": "MEDIUM",
+        "state": "blocked",
+        "risk": "LOW",
+        "retry_count": 2,
+        "max_retries": 3,
+        "created_at": "2026-05-10T08:00:00Z",
+        "updated_at": "2026-05-10T09:45:00Z",
+        "blocked_reason": "Browser Verifyが連続2回失敗。手動確認が必要",
+        "approval_required": False,
+        "eta_seconds": None,
+        "repo": "kyotei-mvp-backend-FastAPI-Render-"
+    },
+    {
+        "id": "task-004",
+        "title": "CSS軽量化",
+        "description": "status pageのCSSを最適化する",
+        "priority": "LOW",
+        "state": "queued",
+        "risk": "LOW",
+        "retry_count": 0,
+        "max_retries": 3,
+        "created_at": "2026-05-10T07:00:00Z",
+        "updated_at": "2026-05-10T07:00:00Z",
+        "blocked_reason": None,
+        "approval_required": False,
+        "eta_seconds": 60,
+        "repo": "kyotei-mvp-backend-FastAPI-Render-"
+    },
+    {
+        "id": "task-005",
+        "title": "P27 Work Queue実装",
+        "description": "Multi-Task Work Queue Runtimeの実装",
+        "priority": "HIGH",
+        "state": "completed",
+        "risk": "MEDIUM",
+        "retry_count": 0,
+        "max_retries": 3,
+        "created_at": "2026-05-10T06:00:00Z",
+        "updated_at": "2026-05-10T10:10:00Z",
+        "blocked_reason": None,
+        "approval_required": False,
+        "eta_seconds": 0,
+        "repo": "kyotei-mvp-backend-FastAPI-Render-"
+    }
+]
+
+def _p27_sorted_queue(tasks):
+    """Sort by priority then created_at"""
+    return sorted(tasks, key=lambda t: (_P27_PRIORITY.get(t["priority"], 9), t["created_at"]))
+
+def _p27_safe_stop_check(task):
+    """Check if task should be blocked"""
+    desc = (task.get("description", "") + " " + task.get("title", "")).lower()
+    for kw in _P27_BLOCKED_KEYWORDS:
+        if kw in desc:
+            return True, f"危険操作を検出: {kw}"
+    if task.get("risk") == "HIGH":
+        return True, "HIGH riskタスクは自動実行禁止"
+    return False, None
+
+def _p27_retry_allowed(task):
+    """Check if retry is allowed"""
+    blocked_types = ["db migration", "auth rewrite", "secret"]
+    desc = task.get("description", "").lower()
+    for bt in blocked_types:
+        if bt in desc:
+            return False
+    return task.get("retry_count", 0) < task.get("max_retries", 3)
+
+def _p27_state_label(state):
+    labels = {
+        "queued": "待機中",
+        "planning": "計画中",
+        "running": "実行中",
+        "waiting_approval": "承認待ち",
+        "blocked": "停止中",
+        "retrying": "再試行中",
+        "completed": "完了",
+        "failed": "失敗",
+        "paused": "一時停止"
+    }
+    return labels.get(state, state)
+
+def _p27_state_icon(state):
+    icons = {
+        "queued": "⏳",
+        "planning": "📋",
+        "running": "🟢",
+        "waiting_approval": "🟡",
+        "blocked": "🔴",
+        "retrying": "🔄",
+        "completed": "✅",
+        "failed": "❌",
+        "paused": "⏸"
+    }
+    return icons.get(state, "⚪")
+
+def _p27_now_jst():
+    from datetime import timezone, timedelta
+    jst = timezone(timedelta(hours=9))
+    return _p27_dt.now(jst).strftime("%Y-%m-%d %H:%M:%S JST")
+
+@router.get("/axia-queue/state")
+async def axia_queue_state():
+    """Return current queue state as JSON"""
+    from fastapi.responses import JSONResponse
+    with _p27_lock:
+        tasks = list(_p27_queue)
+    sorted_tasks = _p27_sorted_queue(tasks)
+    active = [t for t in sorted_tasks if t["state"] in ("running", "planning", "retrying", "queued")]
+    waiting = [t for t in sorted_tasks if t["state"] == "waiting_approval"]
+    blocked = [t for t in sorted_tasks if t["state"] == "blocked"]
+    completed = [t for t in sorted_tasks if t["state"] == "completed"]
+    failed = [t for t in sorted_tasks if t["state"] == "failed"]
+    governance = dict(_P27_GOVERNANCE)
+    return JSONResponse({
+        "queue_version": "P27",
+        "total_tasks": len(sorted_tasks),
+        "active": active,
+        "waiting_approval": waiting,
+        "blocked": blocked,
+        "completed": completed,
+        "failed": failed,
+        "governance": governance,
+        "serverTime": _p27_now_jst()
+    })
+
+@router.post("/axia-queue/enqueue")
+async def axia_queue_enqueue(request: Request):
+    """Enqueue a new task"""
+    from fastapi.responses import JSONResponse
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON"}, status_code=400)
+    title = body.get("title", "").strip()
+    if not title:
+        return JSONResponse({"error": "title is required"}, status_code=400)
+    task = {
+        "id": "task-" + str(_p27_uuid.uuid4())[:8],
+        "title": title,
+        "description": body.get("description", title),
+        "priority": body.get("priority", "MEDIUM"),
+        "state": "queued",
+        "risk": body.get("risk", "LOW"),
+        "retry_count": 0,
+        "max_retries": 3,
+        "created_at": _p27_dt.now(_p27_tz.utc).isoformat(),
+        "updated_at": _p27_dt.now(_p27_tz.utc).isoformat(),
+        "blocked_reason": None,
+        "approval_required": body.get("approval_required", False),
+        "eta_seconds": body.get("eta_seconds", None),
+        "repo": body.get("repo", "kyotei-mvp-backend-FastAPI-Render-")
+    }
+    # Safe stop check
+    blocked, reason = _p27_safe_stop_check(task)
+    if blocked:
+        task["state"] = "blocked"
+        task["blocked_reason"] = reason
+    with _p27_lock:
+        _p27_queue.append(task)
+    return JSONResponse({"status": "enqueued", "task": task})
+
+@router.get("/axia-queue")
+async def axia_queue_dashboard():
+    """Human-readable Work Queue Dashboard"""
+    from fastapi.responses import HTMLResponse
+    with _p27_lock:
+        tasks = list(_p27_queue)
+    sorted_tasks = _p27_sorted_queue(tasks)
+    active = [t for t in sorted_tasks if t["state"] in ("running", "planning", "retrying", "queued")]
+    waiting = [t for t in sorted_tasks if t["state"] == "waiting_approval"]
+    blocked_tasks = [t for t in sorted_tasks if t["state"] == "blocked"]
+    completed = [t for t in sorted_tasks if t["state"] == "completed"]
+    failed = [t for t in sorted_tasks if t["state"] == "failed"]
+    now = _p27_now_jst()
+
+    def task_card(t, extra_class=""):
+        icon = _p27_state_icon(t["state"])
+        label = _p27_state_label(t["state"])
+        risk_color = {"LOW": "#22c55e", "MEDIUM": "#f59e0b", "HIGH": "#ef4444"}.get(t["risk"], "#6b7280")
+        blocked_html = ""
+        if t.get("blocked_reason"):
+            blocked_html = f'<div class="blocked-reason">停止理由: {t["blocked_reason"]}</div>'
+        approval_html = ""
+        if t.get("approval_required"):
+            approval_html = '<div class="approval-badge">承認待ち</div>'
+        eta_html = ""
+        if t.get("eta_seconds") and t["eta_seconds"] > 0:
+            eta_html = f'<span class="eta">推定: {t["eta_seconds"]}秒</span>'
+        retry_html = ""
+        if t.get("retry_count", 0) > 0:
+            retry_html = f'<span class="retry-badge">再試行 {t["retry_count"]}/{t["max_retries"]}</span>'
+        return (
+            f'<div class="task-card {extra_class}">'
+            f'  <div class="task-header">'
+            f'    <span class="task-icon">{icon}</span>'
+            f'    <span class="task-title">{t["title"]}</span>'
+            f'    <span class="task-state">{label}</span>'
+            f'  </div>'
+            f'  <div class="task-meta">'
+            f'    <span class="risk-badge" style="background:{risk_color}">Risk: {t["risk"]}</span>'
+            f'    <span class="priority-badge">Priority: {t["priority"]}</span>'
+            f'    {eta_html}{retry_html}'
+            f'  </div>'
+            f'  {blocked_html}{approval_html}'
+            f'</div>'
+        )
+
+    active_html = "".join(task_card(t) for t in active) or '<div class="empty">現在実行中のタスクはありません</div>'
+    waiting_html = "".join(task_card(t, "approval-card") for t in waiting) or ""
+    blocked_html = "".join(task_card(t, "blocked-card") for t in blocked_tasks) or ""
+    completed_html = "".join(task_card(t, "completed-card") for t in completed) or ""
+    failed_html = "".join(task_card(t, "failed-card") for t in failed) or ""
+
+    approval_section = ""
+    if waiting:
+        approval_section = (
+            '<div class="approval-section">'
+            '  <div class="section-title approval-title">🟡 承認待ちタスク</div>'
+            + waiting_html +
+            '</div>'
+        )
+
+    blocked_section = ""
+    if blocked_tasks:
+        blocked_section = (
+            '<div class="blocked-section">'
+            '  <div class="section-title blocked-title">🔴 停止中タスク</div>'
+            + blocked_html +
+            '</div>'
+        )
+
+    completed_section = ""
+    if completed or failed:
+        completed_section = (
+            '<div class="completed-section">'
+            '  <div class="section-title completed-title">✅ 本日完了</div>'
+            + completed_html + failed_html +
+            '</div>'
+        )
+
+    governance_html = (
+        f'<div class="governance-bar">'
+        f'  <span>同時実行上限: {_P27_GOVERNANCE["max_running"]}件</span>'
+        f'  <span>ブラウザセッション上限: {_P27_GOVERNANCE["max_browser_sessions"]}件</span>'
+        f'  <span>1時間あたりmerge上限: {_P27_GOVERNANCE["max_merge_per_hour"]}件</span>'
+        f'</div>'
+    )
+
+    html = (
+        "<!DOCTYPE html><html lang='ja'><head>"
+        "<meta charset='UTF-8'>"
+        "<meta name='viewport' content='width=device-width, initial-scale=1.0'>"
+        "<title>AXIA Work Queue</title>"
+        "<style>"
+        "* { box-sizing: border-box; margin: 0; padding: 0; }"
+        "body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;"
+        "  background: #0f172a; color: #e2e8f0; min-height: 100vh; padding-bottom: 80px; }"
+        ".header { background: #1e293b; border-bottom: 1px solid #334155;"
+        "  padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; }"
+        ".header h1 { font-size: 1.4rem; font-weight: 700; color: #f1f5f9; }"
+        ".badge-running { background: #22c55e; color: #fff; padding: 4px 12px;"
+        "  border-radius: 20px; font-size: 0.75rem; font-weight: 600; }"
+        ".server-time { color: #94a3b8; font-size: 0.8rem; }"
+        ".governance-bar { background: #1e293b; border-bottom: 1px solid #334155;"
+        "  padding: 8px 24px; display: flex; gap: 24px; font-size: 0.75rem; color: #94a3b8; }"
+        ".main { max-width: 900px; margin: 0 auto; padding: 24px 16px; }"
+        ".section-title { font-size: 1rem; font-weight: 700; margin-bottom: 12px; padding-bottom: 8px;"
+        "  border-bottom: 1px solid #334155; }"
+        ".approval-title { color: #f59e0b; }"
+        ".blocked-title { color: #ef4444; }"
+        ".completed-title { color: #22c55e; }"
+        ".today-section, .approval-section, .blocked-section, .completed-section {"
+        "  margin-bottom: 28px; }"
+        ".task-card { background: #1e293b; border: 1px solid #334155; border-radius: 10px;"
+        "  padding: 14px 16px; margin-bottom: 10px; }"
+        ".task-card.approval-card { border-color: #f59e0b; }"
+        ".task-card.blocked-card { border-color: #ef4444; }"
+        ".task-card.completed-card { opacity: 0.7; }"
+        ".task-card.failed-card { border-color: #ef4444; opacity: 0.7; }"
+        ".task-header { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }"
+        ".task-icon { font-size: 1.2rem; }"
+        ".task-title { font-weight: 600; flex: 1; color: #f1f5f9; }"
+        ".task-state { font-size: 0.75rem; color: #94a3b8; }"
+        ".task-meta { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }"
+        ".risk-badge { color: #fff; padding: 2px 8px; border-radius: 10px; font-size: 0.7rem; font-weight: 600; }"
+        ".priority-badge { background: #334155; color: #94a3b8; padding: 2px 8px;"
+        "  border-radius: 10px; font-size: 0.7rem; }"
+        ".eta { color: #60a5fa; font-size: 0.75rem; }"
+        ".retry-badge { background: #7c3aed; color: #fff; padding: 2px 8px;"
+        "  border-radius: 10px; font-size: 0.7rem; }"
+        ".blocked-reason { margin-top: 8px; color: #f87171; font-size: 0.8rem; }"
+        ".approval-badge { margin-top: 8px; background: #f59e0b; color: #000;"
+        "  padding: 4px 12px; border-radius: 6px; font-size: 0.8rem; font-weight: 600;"
+        "  display: inline-block; }"
+        ".empty { color: #64748b; font-size: 0.9rem; padding: 12px 0; }"
+        ".footer { text-align: center; color: #475569; font-size: 0.75rem;"
+        "  padding: 24px; margin-top: 40px; }"
+        "@media (max-width: 600px) {"
+        "  .governance-bar { flex-direction: column; gap: 4px; }"
+        "  .task-meta { flex-direction: column; align-items: flex-start; }"
+        "}"
+        "</style>"
+        "<script>"
+        "const NOISE_WORDS = ['analysis', 'thinking', 'critic', 'learner', 'debug', 'trace', '[object Object]'];"
+        "function sanitize(s) {"
+        "  if (!s) return s;"
+        "  let r = String(s);"
+        "  NOISE_WORDS.forEach(w => { r = r.replace(new RegExp(w, 'gi'), ''); });"
+        "  return r.trim();"
+        "}"
+        "function autoRefresh() {"
+        "  fetch('/api/axia-queue/state')"
+        "    .then(r => r.json())"
+        "    .then(d => {"
+        "      const el = document.getElementById('server-time');"
+        "      if (el) el.textContent = sanitize(d.serverTime) || '';"
+        "    }).catch(() => {});"
+        "}"
+        "setInterval(autoRefresh, 8000);"
+        "window.addEventListener('load', () => {"
+        "  const saved = sessionStorage.getItem('p27_queue_state');"
+        "  if (saved) { try { JSON.parse(saved); } catch(e) {} }"
+        "  fetch('/api/axia-queue/state').then(r => r.json())"
+        "    .then(d => sessionStorage.setItem('p27_queue_state', JSON.stringify(d)))"
+        "    .catch(() => {});"
+        "});"
+        "</script>"
+        "</head><body>"
+        "<div class='header'>"
+        "  <h1>AXIA Work Queue</h1>"
+        f"  <span class=\'server-time\' id=\'server-time\'>{now}</span>"
+        "  <span class='badge-running'>RUNNING</span>"
+        "</div>"
+        f"{governance_html}"
+        "<div class='main'>"
+        "  <div class='today-section'>"
+        "    <div class='section-title'>📋 Today's Work</div>"
+        f"    {active_html}"
+        "  </div>"
+        f"{approval_section}"
+        f"{blocked_section}"
+        f"{completed_section}"
+        "</div>"
+        "<div class='footer'>"
+        "  AXIA_RUNTIME_CLASS = AUTONOMOUS_MULTI_TASK_WORK_OS<br>"
+        f"  Queue Version: P27 | Tasks: {len(sorted_tasks)} | {now}"
+        "</div>"
+        "</body></html>"
+    )
+    return HTMLResponse(content=html)
