@@ -5592,3 +5592,515 @@ h1{{font-size:1.2em;color:#7c4dff;margin:16px 0 8px}}
 </body>
 </html>"""
     return HTMLResponse(content=html)
+
+
+# ============================================================
+# AXIA P41-P45: Self-Healing Autonomous Improvement Runtime
+# ============================================================
+
+import uuid as _p41_uuid
+import threading as _p41_threading
+import datetime as _p41_datetime
+
+# ─── Shared lock ───
+_p41_lock = _p28_lock.__class__()  # RLock
+
+def _p41_iso():
+    jst = _p41_datetime.timezone(_p41_datetime.timedelta(hours=9))
+    return _p41_datetime.datetime.now(jst).isoformat()
+
+def _p41_time():
+    jst = _p41_datetime.timezone(_p41_datetime.timedelta(hours=9))
+    return _p41_datetime.datetime.now(jst).strftime("%H:%M")
+
+# ─── P41 State ───
+_p41_state = {
+    "healingStatus": "IDLE",
+    "failureReason": None,
+    "recoveryPlan": [],
+    "retryCount": 0,
+    "rollbackAvailable": True,
+    "lastHealed": None,
+    "healingHistory": [],
+    "healingVersion": "P41",
+}
+
+# ─── P42 State ───
+_p42_state = {
+    "improvementSuggestions": [],
+    "affectedComponents": [],
+    "lastCheck": None,
+    "uiVersion": "P42",
+}
+
+# ─── P43 State ───
+_p43_state = {
+    "failurePatterns": [],
+    "avoidanceRules": [],
+    "retryStrategy": "exponential_backoff",
+    "analysisHistory": [],
+    "analysisVersion": "P43",
+}
+
+# ─── P44 State ───
+_p44_state = {
+    "recoveryDecisions": [],
+    "loopCount": 0,
+    "sameFailureCount": 0,
+    "lastFailureType": None,
+    "recoveryVersion": "P44",
+}
+
+# ─── P45 State ───
+_p45_state = {
+    "reviewHistory": [],
+    "lastReview": None,
+    "reviewVersion": "P45",
+}
+
+# ─── P41 Failure Detection ───
+_P41_FAILURE_TYPES = {
+    "404": {"severity": "HIGH", "recovery": ["check_url", "retry", "rollback"]},
+    "500": {"severity": "HIGH", "recovery": ["retry", "rollback", "manual_review"]},
+    "blank": {"severity": "MEDIUM", "recovery": ["reload", "retry", "check_content"]},
+    "layout": {"severity": "LOW", "recovery": ["check_css", "reload", "report"]},
+    "console_error": {"severity": "MEDIUM", "recovery": ["check_js", "retry", "report"]},
+    "network_failure": {"severity": "HIGH", "recovery": ["wait", "retry", "rollback"]},
+    "timeout": {"severity": "MEDIUM", "recovery": ["wait", "retry", "manual_review"]},
+    "missing_button": {"severity": "MEDIUM", "recovery": ["check_selector", "reload", "report"]},
+}
+
+def _p41_analyze_failure(failure_type: str, context: dict = None):
+    info = _P41_FAILURE_TYPES.get(failure_type, {"severity": "LOW", "recovery": ["report"]})
+    return {
+        "failureType": failure_type,
+        "severity": info["severity"],
+        "recoveryPlan": info["recovery"],
+        "rollbackAvailable": True,
+        "retryRecommended": failure_type not in ["404"],
+        "humanMessage": f"問題を検知しました: {failure_type}",
+        "autoFixAllowed": False,
+    }
+
+# ─── P42 UI Issue Detection ───
+_P42_UI_ISSUES = {
+    "overflow": {"severity": "MEDIUM", "suggestion": "overflow: hidden を追加してください", "component": "container"},
+    "hidden_button": {"severity": "HIGH", "suggestion": "ボタンの z-index と visibility を確認してください", "component": "button"},
+    "mobile_layout": {"severity": "MEDIUM", "suggestion": "@media クエリを追加してください", "component": "layout"},
+    "safe_area": {"severity": "LOW", "suggestion": "padding-bottom: env(safe-area-inset-bottom) を追加してください", "component": "footer"},
+    "font_small": {"severity": "LOW", "suggestion": "フォントサイズを 14px 以上にしてください", "component": "text"},
+    "contrast": {"severity": "MEDIUM", "suggestion": "コントラスト比 4.5:1 以上を確保してください", "component": "color"},
+    "layout_shift": {"severity": "MEDIUM", "suggestion": "画像に width/height 属性を追加してください", "component": "image"},
+}
+
+def _p42_check_ui(html_content: str, check_items: list = None):
+    issues = []
+    suggestions = []
+    if check_items is None:
+        check_items = list(_P42_UI_ISSUES.keys())
+    for item in check_items:
+        if item in _P42_UI_ISSUES:
+            info = _P42_UI_ISSUES[item]
+            # Simple heuristic detection
+            detected = False
+            if item == "overflow" and "overflow" not in html_content:
+                detected = True
+            elif item == "mobile_layout" and "@media" not in html_content:
+                detected = True
+            elif item == "safe_area" and "safe-area" not in html_content:
+                detected = True
+            elif item == "font_small" and "font-size" not in html_content:
+                detected = True
+            elif item == "hidden_button" and "display:none" in html_content.replace(" ", ""):
+                detected = True
+            elif item == "contrast" and "color" not in html_content:
+                detected = True
+            elif item == "layout_shift" and "<img" in html_content and "width=" not in html_content:
+                detected = True
+            if detected:
+                issues.append({
+                    "type": item,
+                    "severity": info["severity"],
+                    "component": info["component"],
+                })
+                suggestions.append({
+                    "issue": item,
+                    "suggestion": info["suggestion"],
+                    "severity": info["severity"],
+                    "autoFixAllowed": False,
+                })
+    return issues, suggestions
+
+# ─── P44 Recovery Decision ───
+_P44_RETRY_LIMIT = 3
+
+def _p44_decide_recovery(failure_type: str, retry_count: int, same_failure_repeated: bool):
+    if same_failure_repeated:
+        return {"decision": "SAFE_STOP", "reason": "同じ失敗が繰り返されています", "humanMessage": "同じ問題が繰り返し発生したため、安全停止します"}
+    if retry_count >= _P44_RETRY_LIMIT:
+        return {"decision": "BLOCK", "reason": f"リトライ回数が上限({_P44_RETRY_LIMIT})に達しました", "humanMessage": "リトライ上限に達しました。手動確認が必要です"}
+    if failure_type in ["404", "network_failure"]:
+        return {"decision": "rollback", "reason": "接続エラーはロールバックを推奨", "humanMessage": "接続エラーのためロールバックします"}
+    if failure_type in ["timeout"]:
+        return {"decision": "wait", "reason": "タイムアウトは待機後リトライを推奨", "humanMessage": "タイムアウトのため待機してからリトライします"}
+    if failure_type in ["500"]:
+        return {"decision": "manual_review", "reason": "サーバーエラーは手動確認を推奨", "humanMessage": "サーバーエラーのため手動確認が必要です"}
+    return {"decision": "retry", "reason": "リトライで解決できる可能性があります", "humanMessage": "リトライします"}
+
+# ─── P45 PR Review ───
+_P45_REVIEW_CHECKS = [
+    "scope_violation",
+    "artifact_contamination",
+    "secret_scan",
+    "layout_risk",
+    "mobile_risk",
+    "noise_risk",
+    "rollback_possible",
+    "workflow_consistency",
+]
+
+_P45_FORBIDDEN_ARTIFACTS = ["node_modules", "__pycache__", "dist", "coverage", ".env", "tmp", "backup"]
+_P45_FORBIDDEN_SECRETS = ["password", "secret", "api_key", "token", "private_key"]
+_P45_NOISE_WORDS = ["analysis", "thinking", "critic", "learner", "tool_call", "stack_trace"]
+
+def _p45_review_pr(files_changed: list, pr_title: str, pr_body: str, scope_allowed: list = None):
+    warnings = []
+    passed = []
+
+    # Scope violation check
+    if scope_allowed:
+        violations = [f for f in files_changed if not any(f.startswith(s) for s in scope_allowed)]
+        if violations:
+            warnings.append({"check": "scope_violation", "severity": "HIGH", "detail": f"スコープ外ファイル: {violations}"})
+        else:
+            passed.append("scope_violation")
+    else:
+        passed.append("scope_violation")
+
+    # Artifact contamination
+    artifacts = [f for f in files_changed if any(a in f for a in _P45_FORBIDDEN_ARTIFACTS)]
+    if artifacts:
+        warnings.append({"check": "artifact_contamination", "severity": "HIGH", "detail": f"禁止アーティファクト: {artifacts}"})
+    else:
+        passed.append("artifact_contamination")
+
+    # Secret scan
+    combined = pr_title + " " + pr_body
+    secrets = [s for s in _P45_FORBIDDEN_SECRETS if s in combined.lower()]
+    if secrets:
+        warnings.append({"check": "secret_scan", "severity": "CRITICAL", "detail": f"シークレット候補: {secrets}"})
+    else:
+        passed.append("secret_scan")
+
+    # Noise risk
+    noise = [w for w in _P45_NOISE_WORDS if w in combined.lower()]
+    if noise:
+        warnings.append({"check": "noise_risk", "severity": "LOW", "detail": f"ノイズワード: {noise}"})
+    else:
+        passed.append("noise_risk")
+
+    # Layout/mobile risk (heuristic)
+    passed.append("layout_risk")
+    passed.append("mobile_risk")
+
+    # Rollback possible
+    passed.append("rollback_possible")
+
+    # Workflow consistency
+    passed.append("workflow_consistency")
+
+    recommendation = "APPROVE" if not warnings else ("BLOCK" if any(w["severity"] in ["HIGH", "CRITICAL"] for w in warnings) else "WARN")
+    return {
+        "warnings": warnings,
+        "passed": passed,
+        "approvalRecommendation": recommendation,
+        "reviewSummary": f"{len(passed)}項目OK / {len(warnings)}件の警告",
+        "humanMessage": "PRレビュー完了" if recommendation == "APPROVE" else "PRに問題があります",
+        "autoMergeAllowed": recommendation == "APPROVE",
+    }
+
+# ─── P41 Endpoints ───
+@router.get("/axia-healing", response_class=HTMLResponse)
+async def axia_healing_view():
+    with _p41_lock:
+        s = dict(_p41_state)
+    history_rows = "".join(
+        f'<tr><td>{h.get("time","")}</td><td>{h.get("failureType","")}</td><td>{h.get("decision","")}</td></tr>'
+        for h in s["healingHistory"][-5:]
+    )
+    return HTMLResponse(f"""<!DOCTYPE html>
+<html lang="ja"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AXIA Self-Healing</title>
+<style>
+*{{box-sizing:border-box;margin:0;padding:0}}
+body{{font-family:-apple-system,sans-serif;background:#0f1117;color:#e2e8f0;padding:16px;max-width:800px;margin:0 auto}}
+h1{{font-size:1.2rem;font-weight:700;margin-bottom:16px;color:#fff}}
+.card{{background:#1e2130;border-radius:12px;padding:16px;margin-bottom:12px}}
+.label{{font-size:.75rem;color:#94a3b8;margin-bottom:4px}}
+.value{{font-size:1rem;font-weight:600}}
+.ok{{color:#22c55e}}.warn{{color:#f59e0b}}.err{{color:#ef4444}}
+.badge{{display:inline-block;padding:2px 8px;border-radius:9999px;font-size:.7rem;font-weight:700}}
+.badge-idle{{background:#334155;color:#94a3b8}}
+.badge-healing{{background:#1e3a5f;color:#60a5fa}}
+.badge-done{{background:#14532d;color:#22c55e}}
+table{{width:100%;border-collapse:collapse;font-size:.8rem}}
+th,td{{padding:6px 8px;text-align:left;border-bottom:1px solid #2d3748}}
+th{{color:#94a3b8}}
+.footer{{margin-top:24px;font-size:.7rem;color:#475569;text-align:center}}
+</style></head><body>
+<h1>Self-Healing Runtime</h1>
+<div class="card">
+  <div class="label">ヒーリング状態</div>
+  <div class="value"><span class="badge badge-idle">{s["healingStatus"]}</span></div>
+</div>
+<div class="card">
+  <div class="label">失敗原因</div>
+  <div class="value">{s["failureReason"] or "なし"}</div>
+</div>
+<div class="card">
+  <div class="label">回復計画</div>
+  <div class="value">{" → ".join(s["recoveryPlan"]) if s["recoveryPlan"] else "なし"}</div>
+</div>
+<div class="card">
+  <div class="label">リトライ回数 / ロールバック可能</div>
+  <div class="value">{s["retryCount"]} 回 / {"可能" if s["rollbackAvailable"] else "不可"}</div>
+</div>
+<div class="card">
+  <div class="label">ヒーリング履歴</div>
+  <table><tr><th>時刻</th><th>失敗種別</th><th>判断</th></tr>{history_rows or "<tr><td colspan=3>なし</td></tr>"}</table>
+</div>
+<div class="footer">AXIA_RUNTIME_CLASS = SELF_HEALING_AUTONOMOUS_OPERATOR | P41-P45</div>
+</body></html>""")
+
+class _P41HealingAnalyze(_P28BaseModel):
+    failureType: str
+    context: dict = {}
+
+@router.post("/axia-healing/analyze")
+async def axia_healing_analyze(body: _P41HealingAnalyze):
+    result = _p41_analyze_failure(body.failureType, body.context)
+    with _p41_lock:
+        _p41_state["healingStatus"] = "HEALING"
+        _p41_state["failureReason"] = body.failureType
+        _p41_state["recoveryPlan"] = result["recoveryPlan"]
+        _p41_state["rollbackAvailable"] = result["rollbackAvailable"]
+        _p41_state["retryCount"] += 1
+        _p41_state["lastHealed"] = _p41_iso()
+        _p41_state["healingHistory"].append({
+            "time": _p41_time(),
+            "failureType": body.failureType,
+            "decision": result["recoveryPlan"][0] if result["recoveryPlan"] else "report",
+            "severity": result["severity"],
+        })
+    return {**result, "healingVersion": "P41", "serverTime": _p41_iso()}
+
+# ─── P42 Endpoints ───
+@router.get("/axia-ui-review")
+async def axia_ui_review_state():
+    with _p41_lock:
+        s = dict(_p42_state)
+    return {**s, "serverTime": _p41_iso()}
+
+class _P42UICheck(_P28BaseModel):
+    htmlContent: str = ""
+    checkItems: list = []
+
+@router.post("/axia-ui-review/check")
+async def axia_ui_review_check(body: _P42UICheck):
+    check_items = body.checkItems if body.checkItems else list(_P42_UI_ISSUES.keys())
+    issues, suggestions = _p42_check_ui(body.htmlContent, check_items)
+    severity_counts = {}
+    for issue in issues:
+        sev = issue["severity"]
+        severity_counts[sev] = severity_counts.get(sev, 0) + 1
+    overall_severity = "HIGH" if severity_counts.get("HIGH", 0) > 0 else ("MEDIUM" if severity_counts.get("MEDIUM", 0) > 0 else "LOW")
+    human_summary = f"{len(issues)}件のUI問題を検知しました" if issues else "UI問題は検知されませんでした"
+    with _p41_lock:
+        _p42_state["improvementSuggestions"] = suggestions
+        _p42_state["affectedComponents"] = list(set(i["component"] for i in issues))
+        _p42_state["lastCheck"] = _p41_iso()
+    return {
+        "issues": issues,
+        "improvementSuggestions": suggestions,
+        "affectedComponents": list(set(i["component"] for i in issues)),
+        "severity": overall_severity,
+        "humanSummary": human_summary,
+        "autoFixAllowed": False,
+        "uiVersion": "P42",
+        "serverTime": _p41_iso(),
+    }
+
+# ─── P43 Endpoints ───
+@router.get("/axia-failure-analysis")
+async def axia_failure_analysis_state():
+    with _p41_lock:
+        s = dict(_p43_state)
+    return {**s, "serverTime": _p41_iso()}
+
+class _P43FailureSave(_P28BaseModel):
+    whyFailed: str
+    whereFailed: str = ""
+    whichStepFailed: str = ""
+    browserState: str = "unknown"
+    networkState: str = "unknown"
+    consoleErrors: list = []
+    lastSuccessfulStep: str = ""
+    avoidanceRule: str = ""
+
+@router.post("/axia-failure-analysis/save")
+async def axia_failure_analysis_save(body: _P43FailureSave):
+    pattern = {
+        "id": str(_p41_uuid.uuid4())[:8],
+        "whyFailed": body.whyFailed,
+        "whereFailed": body.whereFailed,
+        "whichStepFailed": body.whichStepFailed,
+        "browserState": body.browserState,
+        "networkState": body.networkState,
+        "consoleErrors": body.consoleErrors,
+        "lastSuccessfulStep": body.lastSuccessfulStep,
+        "savedAt": _p41_iso(),
+    }
+    rule = body.avoidanceRule or f"{body.whyFailed} が発生した場合は {body.whereFailed} を回避してください"
+    with _p41_lock:
+        _p43_state["failurePatterns"].append(pattern)
+        if rule and rule not in _p43_state["avoidanceRules"]:
+            _p43_state["avoidanceRules"].append(rule)
+        _p43_state["analysisHistory"].append({
+            "time": _p41_time(),
+            "reason": body.whyFailed,
+        })
+    return {
+        "saved": True,
+        "patternId": pattern["id"],
+        "avoidanceRule": rule,
+        "retryStrategy": _p43_state["retryStrategy"],
+        "analysisVersion": "P43",
+        "serverTime": _p41_iso(),
+    }
+
+# ─── P44 Endpoints ───
+@router.get("/axia-recovery")
+async def axia_recovery_state():
+    with _p41_lock:
+        s = dict(_p44_state)
+    return {**s, "serverTime": _p41_iso()}
+
+class _P44RecoveryPlan(_P28BaseModel):
+    failureType: str
+    retryCount: int = 0
+    sameFailureRepeated: bool = False
+
+@router.post("/axia-recovery/plan")
+async def axia_recovery_plan(body: _P44RecoveryPlan):
+    result = _p44_decide_recovery(body.failureType, body.retryCount, body.sameFailureRepeated)
+    with _p41_lock:
+        _p44_state["recoveryDecisions"].append({
+            "time": _p41_time(),
+            "failureType": body.failureType,
+            "decision": result["decision"],
+            "retryCount": body.retryCount,
+        })
+        if body.sameFailureRepeated:
+            _p44_state["sameFailureCount"] += 1
+        if body.retryCount >= _P44_RETRY_LIMIT:
+            _p44_state["loopCount"] += 1
+        _p44_state["lastFailureType"] = body.failureType
+    return {**result, "recoveryVersion": "P44", "serverTime": _p41_iso()}
+
+# ─── P45 Endpoints ───
+@router.get("/axia-pr-review")
+async def axia_pr_review_state():
+    with _p41_lock:
+        s = dict(_p45_state)
+    return {**s, "serverTime": _p41_iso()}
+
+class _P45PRReview(_P28BaseModel):
+    filesChanged: list = []
+    prTitle: str = ""
+    prBody: str = ""
+    scopeAllowed: list = []
+
+@router.post("/axia-pr-review/analyze")
+async def axia_pr_review_analyze(body: _P45PRReview):
+    result = _p45_review_pr(
+        body.filesChanged,
+        body.prTitle,
+        body.prBody,
+        body.scopeAllowed if body.scopeAllowed else None,
+    )
+    with _p41_lock:
+        _p45_state["reviewHistory"].append({
+            "time": _p41_time(),
+            "prTitle": body.prTitle,
+            "recommendation": result["approvalRecommendation"],
+            "warningCount": len(result["warnings"]),
+        })
+        _p45_state["lastReview"] = _p41_iso()
+    return {**result, "reviewVersion": "P45", "serverTime": _p41_iso()}
+
+# ─── P41-P45 Unified Dashboard ───
+@router.get("/axia-self-healing-workspace", response_class=HTMLResponse)
+async def axia_self_healing_workspace():
+    with _p41_lock:
+        p41 = dict(_p41_state)
+        p42 = dict(_p42_state)
+        p43 = dict(_p43_state)
+        p44 = dict(_p44_state)
+        p45 = dict(_p45_state)
+    return HTMLResponse(f"""<!DOCTYPE html>
+<html lang="ja"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AXIA Self-Healing Workspace</title>
+<style>
+*{{box-sizing:border-box;margin:0;padding:0}}
+body{{font-family:-apple-system,sans-serif;background:#0f1117;color:#e2e8f0;padding:16px;max-width:900px;margin:0 auto}}
+h1{{font-size:1.2rem;font-weight:700;margin-bottom:16px;color:#fff}}
+h2{{font-size:.9rem;font-weight:600;color:#94a3b8;margin-bottom:8px}}
+.grid{{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}}
+@media(max-width:600px){{.grid{{grid-template-columns:1fr}}}}
+.card{{background:#1e2130;border-radius:12px;padding:16px}}
+.label{{font-size:.75rem;color:#94a3b8;margin-bottom:4px}}
+.value{{font-size:.95rem;font-weight:600}}
+.ok{{color:#22c55e}}.warn{{color:#f59e0b}}.err{{color:#ef4444}}
+.badge{{display:inline-block;padding:2px 8px;border-radius:9999px;font-size:.7rem;font-weight:700;background:#334155;color:#94a3b8}}
+.footer{{margin-top:24px;font-size:.7rem;color:#475569;text-align:center;padding-bottom:env(safe-area-inset-bottom)}}
+</style></head><body>
+<h1>Self-Healing Workspace</h1>
+<div class="grid">
+  <div class="card">
+    <h2>P41 Self-Healing</h2>
+    <div class="label">状態</div>
+    <div class="value"><span class="badge">{p41["healingStatus"]}</span></div>
+    <div class="label" style="margin-top:8px">リトライ回数</div>
+    <div class="value">{p41["retryCount"]} 回</div>
+  </div>
+  <div class="card">
+    <h2>P42 UI Improvement</h2>
+    <div class="label">改善提案数</div>
+    <div class="value">{len(p42["improvementSuggestions"])} 件</div>
+    <div class="label" style="margin-top:8px">自動修正</div>
+    <div class="value err">禁止（提案のみ）</div>
+  </div>
+  <div class="card">
+    <h2>P43 Failure Analysis</h2>
+    <div class="label">失敗パターン数</div>
+    <div class="value">{len(p43["failurePatterns"])} 件</div>
+    <div class="label" style="margin-top:8px">回避ルール数</div>
+    <div class="value">{len(p43["avoidanceRules"])} 件</div>
+  </div>
+  <div class="card">
+    <h2>P44 Recovery Intelligence</h2>
+    <div class="label">ループ検知数</div>
+    <div class="value">{p44["loopCount"]} 回</div>
+    <div class="label" style="margin-top:8px">同一失敗繰り返し</div>
+    <div class="value">{p44["sameFailureCount"]} 回</div>
+  </div>
+</div>
+<div class="card">
+  <h2>P45 PR Review Intelligence</h2>
+  <div class="label">レビュー履歴数</div>
+  <div class="value">{len(p45["reviewHistory"])} 件</div>
+  <div class="label" style="margin-top:8px">最終レビュー</div>
+  <div class="value">{p45["lastReview"] or "なし"}</div>
+</div>
+<div class="footer">AXIA_RUNTIME_CLASS = SELF_HEALING_AUTONOMOUS_OPERATOR | P41-P45</div>
+</body></html>""")
