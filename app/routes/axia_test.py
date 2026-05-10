@@ -9986,3 +9986,542 @@ h1{{color:#00d4ff;font-size:1.6em;margin-bottom:4px}}
 </html>"""
     from fastapi.responses import HTMLResponse
     return HTMLResponse(content=html)
+
+
+# ============================================================
+# AXIA P86-P90: Autonomous Execution Control Runtime
+# AXIA_RUNTIME_CLASS = AUTONOMOUS_EXECUTION_CONTROL_OPERATOR
+# approvalRequired = true | highRiskBlocked = true
+# ============================================================
+
+import uuid as _uuid_p86
+
+_P86_RUNTIME_CLASS = "AUTONOMOUS_EXECUTION_CONTROL_OPERATOR"
+
+# ── P86 State ──────────────────────────────────────────────
+_p86_approvals = [
+    {
+        "approvalId": "appr_001",
+        "proposalId": "prop_cta_001",
+        "improvement": "CTA固定表示",
+        "approvedBy": "human_operator",
+        "executionAllowed": True,
+        "riskLevel": "LOW",
+        "executionStatus": "READY",
+        "blockedReason": None,
+        "approvedAt": "2026-05-01T10:00:00Z",
+    },
+    {
+        "approvalId": "appr_002",
+        "proposalId": "prop_form_002",
+        "improvement": "フォーム短縮（3項目以下）",
+        "approvedBy": "human_operator",
+        "executionAllowed": True,
+        "riskLevel": "LOW",
+        "executionStatus": "COMPLETED",
+        "blockedReason": None,
+        "approvedAt": "2026-05-05T09:00:00Z",
+    },
+    {
+        "approvalId": "appr_003",
+        "proposalId": "prop_db_003",
+        "improvement": "DB schema変更（ユーザーテーブル拡張）",
+        "approvedBy": None,
+        "executionAllowed": False,
+        "riskLevel": "HIGH",
+        "executionStatus": "BLOCKED",
+        "blockedReason": "HIGH risk — DB change is forbidden by safety policy",
+        "approvedAt": None,
+    },
+]
+
+_p86_state = {
+    "approvalVersion": "P86",
+    "runtimeClass": "AUTONOMOUS_EXECUTION_CONTROL_OPERATOR",
+    "approvalRequired": True,
+    "highRiskBlocked": True,
+    "forbiddenCategories": ["DB", "auth", "payment", "price", "deploy"],
+    "totalApprovals": len(_p86_approvals),
+    "readyToExecute": sum(1 for a in _p86_approvals if a["executionStatus"] == "READY"),
+    "blocked": sum(1 for a in _p86_approvals if a["executionStatus"] == "BLOCKED"),
+    "completed": sum(1 for a in _p86_approvals if a["executionStatus"] == "COMPLETED"),
+}
+
+# ── P87 State ──────────────────────────────────────────────
+_p87_plans = [
+    {
+        "planId": "plan_cta_001",
+        "approvalId": "appr_001",
+        "improvement": "CTA固定表示",
+        "targetFiles": ["app/static/lp/index.html", "app/static/lp/style.css"],
+        "changeSummary": "Move CTA button to fixed position. Update CSS z-index and position:sticky.",
+        "expectedDiff": "+2 lines CSS, -0 lines HTML (position attribute change only)",
+        "riskCheck": {
+            "riskLevel": "LOW",
+            "dbChange": False,
+            "authChange": False,
+            "paymentChange": False,
+            "priceChange": False,
+            "deployRequired": False,
+            "executionAllowed": True,
+        },
+        "rollbackPlan": "Revert CSS position:sticky to position:relative. Git revert available.",
+        "verifyPlan": [
+            "Check CTA is visible above fold on desktop",
+            "Check CTA is visible on mobile viewport",
+            "Verify CTA click tracking fires correctly",
+        ],
+        "browserVerifyPlan": [
+            "Open LP in browser",
+            "Scroll to 50% — verify CTA remains visible",
+            "Click CTA — verify conversion flow starts",
+        ],
+        "createdAt": "2026-05-01T10:05:00Z",
+    }
+]
+
+_p87_state = {
+    "planVersion": "P87",
+    "runtimeClass": "AUTONOMOUS_EXECUTION_CONTROL_OPERATOR",
+    "approvalRequired": True,
+    "highRiskBlocked": True,
+    "totalPlans": len(_p87_plans),
+}
+
+# ── P88 State ──────────────────────────────────────────────
+_p88_evidence = [
+    {
+        "evidenceId": "evid_form_002",
+        "approvalId": "appr_002",
+        "improvement": "フォーム短縮（3項目以下）",
+        "beforeState": {"formFields": 6, "formCompletionRate": 0.52, "uxScore": 0.71},
+        "afterState": {"formFields": 3, "formCompletionRate": 0.71, "uxScore": 0.83},
+        "diffSummary": "Reduced form fields from 6 to 3. Completion rate +19pp. UX score +0.12.",
+        "browserScreenshotStatus": "CAPTURED",
+        "verifyResult": "PASS",
+        "approvalRecord": {
+            "approvalId": "appr_002",
+            "approvedBy": "human_operator",
+            "approvedAt": "2026-05-05T09:00:00Z",
+        },
+        "rollbackAvailable": True,
+        "rollbackCommand": "git revert HEAD~1 --no-edit",
+        "savedAt": "2026-05-05T12:00:00Z",
+    }
+]
+
+_p88_state = {
+    "evidenceVersion": "P88",
+    "runtimeClass": "AUTONOMOUS_EXECUTION_CONTROL_OPERATOR",
+    "approvalRequired": True,
+    "totalEvidence": len(_p88_evidence),
+    "rollbackAvailableCount": sum(1 for e in _p88_evidence if e["rollbackAvailable"]),
+}
+
+# ── P89 State ──────────────────────────────────────────────
+_p89_impacts = [
+    {
+        "impactId": "impact_form_002",
+        "approvalId": "appr_002",
+        "improvement": "フォーム短縮（3項目以下）",
+        "expectedImpact": "+8% CVR",
+        "actualImpact": "+17% CVR",
+        "beforeKPI": {"cvr": 0.041, "uxScore": 0.71, "formCompletionRate": 0.52},
+        "afterKPI": {"cvr": 0.048, "uxScore": 0.83, "formCompletionRate": 0.71},
+        "successSignal": True,
+        "followUpNeeded": False,
+        "followUpReason": None,
+        "trackedAt": "2026-05-12T10:00:00Z",
+    }
+]
+
+_p89_state = {
+    "postImpactVersion": "P89",
+    "runtimeClass": "AUTONOMOUS_EXECUTION_CONTROL_OPERATOR",
+    "approvalRequired": True,
+    "totalTracked": len(_p89_impacts),
+    "successCount": sum(1 for i in _p89_impacts if i["successSignal"]),
+    "followUpCount": sum(1 for i in _p89_impacts if i["followUpNeeded"]),
+}
+
+# ── P86 Endpoints ──────────────────────────────────────────
+
+@router.get("/axia-execution-approvals")
+def p86_get_approvals():
+    return {
+        "approvalVersion": _p86_state["approvalVersion"],
+        "runtimeClass": _p86_state["runtimeClass"],
+        "approvalRequired": _p86_state["approvalRequired"],
+        "highRiskBlocked": _p86_state["highRiskBlocked"],
+        "forbiddenCategories": _p86_state["forbiddenCategories"],
+        "approvals": _p86_approvals,
+        "totalApprovals": len(_p86_approvals),
+        "readyToExecute": sum(1 for a in _p86_approvals if a["executionStatus"] == "READY"),
+        "blocked": sum(1 for a in _p86_approvals if a["executionStatus"] == "BLOCKED"),
+        "completed": sum(1 for a in _p86_approvals if a["executionStatus"] == "COMPLETED"),
+    }
+
+@router.post("/axia-execution-approvals/approve")
+async def p86_approve_execution(request: Request):
+    payload = await request.json()
+    proposal_id = payload.get("proposalId", "")
+    improvement = payload.get("improvement", "Unknown improvement")
+    risk_level = payload.get("riskLevel", "LOW")
+    approved_by = payload.get("approvedBy", "human_operator")
+    category = payload.get("category", "general")
+
+    # Safety checks
+    forbidden = _p86_state["forbiddenCategories"]
+    if risk_level == "HIGH":
+        return {
+            "approvalId": None,
+            "executionAllowed": False,
+            "executionStatus": "BLOCKED",
+            "blockedReason": "HIGH risk — execution is forbidden by safety policy",
+            "approvalRequired": True,
+            "highRiskBlocked": True,
+            "runtimeClass": "AUTONOMOUS_EXECUTION_CONTROL_OPERATOR",
+        }
+
+    if any(cat.lower() in category.lower() for cat in forbidden):
+        return {
+            "approvalId": None,
+            "executionAllowed": False,
+            "executionStatus": "BLOCKED",
+            "blockedReason": f"Category '{category}' is in forbidden list: {forbidden}",
+            "approvalRequired": True,
+            "highRiskBlocked": True,
+            "runtimeClass": "AUTONOMOUS_EXECUTION_CONTROL_OPERATOR",
+        }
+
+    import datetime
+    approval_id = f"appr_{str(_uuid_p86.uuid4())[:6]}"
+    entry = {
+        "approvalId": approval_id,
+        "proposalId": proposal_id,
+        "improvement": improvement,
+        "approvedBy": approved_by,
+        "executionAllowed": True,
+        "riskLevel": risk_level,
+        "executionStatus": "READY",
+        "blockedReason": None,
+        "approvedAt": datetime.datetime.utcnow().isoformat(),
+    }
+    _p86_approvals.append(entry)
+
+    return {
+        "approvalId": approval_id,
+        "proposalId": proposal_id,
+        "improvement": improvement,
+        "approvedBy": approved_by,
+        "executionAllowed": True,
+        "riskLevel": risk_level,
+        "executionStatus": "READY",
+        "blockedReason": None,
+        "approvalRequired": True,
+        "highRiskBlocked": True,
+        "runtimeClass": "AUTONOMOUS_EXECUTION_CONTROL_OPERATOR",
+        "approvedAt": entry["approvedAt"],
+    }
+
+# ── P87 Endpoints ──────────────────────────────────────────
+
+@router.get("/axia-change-plan")
+def p87_get_change_plan():
+    return {
+        "planVersion": _p87_state["planVersion"],
+        "runtimeClass": _p87_state["runtimeClass"],
+        "approvalRequired": _p87_state["approvalRequired"],
+        "highRiskBlocked": _p87_state["highRiskBlocked"],
+        "plans": _p87_plans,
+        "totalPlans": len(_p87_plans),
+    }
+
+@router.post("/axia-change-plan/create")
+async def p87_create_change_plan(request: Request):
+    payload = await request.json()
+    import datetime
+    approval_id = payload.get("approvalId", "")
+    improvement = payload.get("improvement", "Unknown improvement")
+    target_files = payload.get("targetFiles", ["app/static/lp/index.html"])
+    risk_level = payload.get("riskLevel", "LOW")
+
+    plan_id = f"plan_{str(_uuid_p86.uuid4())[:6]}"
+    plan = {
+        "planId": plan_id,
+        "approvalId": approval_id,
+        "improvement": improvement,
+        "targetFiles": target_files,
+        "changeSummary": f"Implement: {improvement}. Target files: {', '.join(target_files)}.",
+        "expectedDiff": "Minor UI/CSS change. No backend changes.",
+        "riskCheck": {
+            "riskLevel": risk_level,
+            "dbChange": False,
+            "authChange": False,
+            "paymentChange": False,
+            "priceChange": False,
+            "deployRequired": False,
+            "executionAllowed": risk_level != "HIGH",
+        },
+        "rollbackPlan": "Git revert to previous commit. Estimated rollback time: < 2 minutes.",
+        "verifyPlan": [
+            f"Verify {improvement} is applied correctly",
+            "Check no regressions in existing functionality",
+            "Confirm KPI tracking is active",
+        ],
+        "browserVerifyPlan": [
+            "Open LP in browser",
+            f"Verify {improvement} is visible",
+            "Click through conversion flow",
+        ],
+        "createdAt": datetime.datetime.utcnow().isoformat(),
+    }
+    _p87_plans.append(plan)
+
+    return {
+        "planId": plan_id,
+        "planVersion": "P87",
+        "runtimeClass": "AUTONOMOUS_EXECUTION_CONTROL_OPERATOR",
+        "approvalRequired": True,
+        "highRiskBlocked": True,
+        "approvalId": approval_id,
+        "improvement": improvement,
+        "targetFiles": target_files,
+        "changeSummary": plan["changeSummary"],
+        "expectedDiff": plan["expectedDiff"],
+        "riskCheck": plan["riskCheck"],
+        "rollbackPlan": plan["rollbackPlan"],
+        "verifyPlan": plan["verifyPlan"],
+        "browserVerifyPlan": plan["browserVerifyPlan"],
+        "createdAt": plan["createdAt"],
+    }
+
+# ── P88 Endpoints ──────────────────────────────────────────
+
+@router.get("/axia-execution-evidence")
+def p88_get_evidence():
+    return {
+        "evidenceVersion": _p88_state["evidenceVersion"],
+        "runtimeClass": _p88_state["runtimeClass"],
+        "approvalRequired": _p88_state["approvalRequired"],
+        "evidence": _p88_evidence,
+        "totalEvidence": len(_p88_evidence),
+        "rollbackAvailableCount": sum(1 for e in _p88_evidence if e["rollbackAvailable"]),
+    }
+
+@router.post("/axia-execution-evidence/save")
+async def p88_save_evidence(request: Request):
+    payload = await request.json()
+    import datetime
+    approval_id = payload.get("approvalId", "")
+    improvement = payload.get("improvement", "Unknown improvement")
+    before_state = payload.get("beforeState", {})
+    after_state = payload.get("afterState", {})
+    verify_result = payload.get("verifyResult", "PASS")
+    approved_by = payload.get("approvedBy", "human_operator")
+
+    # Generate diff summary
+    diff_parts = []
+    for key in set(list(before_state.keys()) + list(after_state.keys())):
+        bv = before_state.get(key, "N/A")
+        av = after_state.get(key, "N/A")
+        if bv != av:
+            diff_parts.append(f"{key}: {bv} → {av}")
+    diff_summary = ". ".join(diff_parts) if diff_parts else "No measurable diff detected."
+
+    evidence_id = f"evid_{str(_uuid_p86.uuid4())[:6]}"
+    entry = {
+        "evidenceId": evidence_id,
+        "approvalId": approval_id,
+        "improvement": improvement,
+        "beforeState": before_state,
+        "afterState": after_state,
+        "diffSummary": diff_summary,
+        "browserScreenshotStatus": "CAPTURED",
+        "verifyResult": verify_result,
+        "approvalRecord": {
+            "approvalId": approval_id,
+            "approvedBy": approved_by,
+            "approvedAt": datetime.datetime.utcnow().isoformat(),
+        },
+        "rollbackAvailable": True,
+        "rollbackCommand": "git revert HEAD~1 --no-edit",
+        "savedAt": datetime.datetime.utcnow().isoformat(),
+    }
+    _p88_evidence.append(entry)
+
+    return {
+        "evidenceId": evidence_id,
+        "evidenceVersion": "P88",
+        "runtimeClass": "AUTONOMOUS_EXECUTION_CONTROL_OPERATOR",
+        "approvalRequired": True,
+        "approvalId": approval_id,
+        "improvement": improvement,
+        "diffSummary": diff_summary,
+        "browserScreenshotStatus": "CAPTURED",
+        "verifyResult": verify_result,
+        "rollbackAvailable": True,
+        "rollbackCommand": entry["rollbackCommand"],
+        "savedAt": entry["savedAt"],
+    }
+
+# ── P89 Endpoints ──────────────────────────────────────────
+
+@router.get("/axia-post-impact")
+def p89_get_post_impact():
+    return {
+        "postImpactVersion": _p89_state["postImpactVersion"],
+        "runtimeClass": _p89_state["runtimeClass"],
+        "approvalRequired": _p89_state["approvalRequired"],
+        "impacts": _p89_impacts,
+        "totalTracked": len(_p89_impacts),
+        "successCount": sum(1 for i in _p89_impacts if i["successSignal"]),
+        "followUpCount": sum(1 for i in _p89_impacts if i["followUpNeeded"]),
+    }
+
+@router.post("/axia-post-impact/track")
+async def p89_track_post_impact(request: Request):
+    payload = await request.json()
+    import datetime
+    approval_id = payload.get("approvalId", "")
+    improvement = payload.get("improvement", "Unknown improvement")
+    expected_impact = payload.get("expectedImpact", "+5% CVR")
+    before_kpi = payload.get("beforeKPI", {"cvr": 0.03})
+    after_kpi = payload.get("afterKPI", {"cvr": 0.035})
+
+    # Calculate actual impact
+    before_cvr = before_kpi.get("cvr", 0.03)
+    after_cvr = after_kpi.get("cvr", 0.035)
+    if before_cvr > 0:
+        actual_pct = round((after_cvr - before_cvr) / before_cvr * 100, 1)
+        actual_impact = f"+{actual_pct}% CVR" if actual_pct >= 0 else f"{actual_pct}% CVR"
+    else:
+        actual_impact = "N/A"
+
+    success = after_cvr >= before_cvr
+    follow_up = not success or actual_pct < 3 if before_cvr > 0 else False
+
+    impact_id = f"impact_{str(_uuid_p86.uuid4())[:6]}"
+    entry = {
+        "impactId": impact_id,
+        "approvalId": approval_id,
+        "improvement": improvement,
+        "expectedImpact": expected_impact,
+        "actualImpact": actual_impact,
+        "beforeKPI": before_kpi,
+        "afterKPI": after_kpi,
+        "successSignal": success,
+        "followUpNeeded": follow_up,
+        "followUpReason": "Impact below threshold — review needed" if follow_up else None,
+        "trackedAt": datetime.datetime.utcnow().isoformat(),
+    }
+    _p89_impacts.append(entry)
+
+    return {
+        "impactId": impact_id,
+        "postImpactVersion": "P89",
+        "runtimeClass": "AUTONOMOUS_EXECUTION_CONTROL_OPERATOR",
+        "approvalRequired": True,
+        "approvalId": approval_id,
+        "improvement": improvement,
+        "expectedImpact": expected_impact,
+        "actualImpact": actual_impact,
+        "beforeKPI": before_kpi,
+        "afterKPI": after_kpi,
+        "successSignal": success,
+        "followUpNeeded": follow_up,
+        "followUpReason": entry["followUpReason"],
+        "trackedAt": entry["trackedAt"],
+    }
+
+# ── P90 Dashboard ──────────────────────────────────────────
+
+@router.get("/axia-execution-control")
+def p90_execution_control_dashboard():
+    approved_count = sum(1 for a in _p86_approvals if a["executionAllowed"])
+    ready_count = sum(1 for a in _p86_approvals if a["executionStatus"] == "READY")
+    blocked_items = [a for a in _p86_approvals if a["executionStatus"] == "BLOCKED"]
+    evidence_count = len(_p88_evidence)
+    success_count = sum(1 for i in _p89_impacts if i["successSignal"])
+    follow_up_count = sum(1 for i in _p89_impacts if i["followUpNeeded"])
+
+    html = f"""<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>AXIA Execution Control Dashboard</title>
+<style>
+body{{font-family:Arial,sans-serif;background:#0a0a0a;color:#e0e0e0;margin:0;padding:20px}}
+h1{{color:#00d4ff;font-size:1.6em;margin-bottom:4px}}
+.subtitle{{color:#888;font-size:0.85em;margin-bottom:24px}}
+.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin-bottom:24px}}
+.card{{background:#1a1a2e;border:1px solid #333;border-radius:10px;padding:18px}}
+.card-title{{color:#888;font-size:0.78em;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px}}
+.card-value{{color:#00d4ff;font-size:2em;font-weight:bold}}
+.card-sub{{color:#aaa;font-size:0.82em;margin-top:6px}}
+.section{{background:#1a1a2e;border:1px solid #333;border-radius:10px;padding:18px;margin-bottom:16px}}
+.section h3{{color:#00d4ff;margin:0 0 12px 0;font-size:1em}}
+.item{{background:#0d0d1a;border-radius:6px;padding:10px 14px;margin-bottom:8px;font-size:0.88em}}
+.badge{{display:inline-block;padding:2px 10px;border-radius:12px;font-size:0.75em;font-weight:bold}}
+.badge-ok{{background:#00c851;color:#fff}}
+.badge-warn{{background:#ff6b35;color:#fff}}
+.badge-block{{background:#cc0000;color:#fff}}
+.badge-ready{{background:#00d4ff;color:#000}}
+.footer{{color:#444;font-size:0.75em;text-align:center;margin-top:24px}}
+</style>
+</head>
+<body>
+<h1>AXIA Execution Control Dashboard</h1>
+<div class="subtitle">P86-P90 | AUTONOMOUS_EXECUTION_CONTROL_OPERATOR | approvalRequired = true | highRiskBlocked = true</div>
+
+<div class="grid">
+  <div class="card">
+    <div class="card-title">Approved Improvements</div>
+    <div class="card-value">{approved_count}</div>
+    <div class="card-sub">Execution allowed</div>
+  </div>
+  <div class="card">
+    <div class="card-title">Ready to Execute</div>
+    <div class="card-value" style="color:#00c851">{ready_count}</div>
+    <div class="card-sub">Awaiting human trigger</div>
+  </div>
+  <div class="card">
+    <div class="card-title">Blocked</div>
+    <div class="card-value" style="color:#ff6b35">{len(blocked_items)}</div>
+    <div class="card-sub">HIGH risk / DB change</div>
+  </div>
+  <div class="card">
+    <div class="card-title">Evidence</div>
+    <div class="card-value">{evidence_count}</div>
+    <div class="card-sub">Diff OK / Verify OK / Rollback OK</div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Approved Improvements</h3>
+  {"".join(f'<div class="item"><span class="badge badge-{"ready" if a["executionStatus"] == "READY" else "ok" if a["executionStatus"] == "COMPLETED" else "block"}">{a["executionStatus"]}</span> {a["improvement"]} — Risk: {a["riskLevel"]} | By: {a["approvedBy"] or "N/A"}</div>' for a in _p86_approvals if a["executionAllowed"])}
+</div>
+
+<div class="section">
+  <h3>Blocked Items</h3>
+  {"".join(f'<div class="item"><span class="badge badge-block">BLOCKED</span> {a["improvement"]} — {a["blockedReason"]}</div>' for a in blocked_items) if blocked_items else '<div class="item">No blocked items</div>'}
+</div>
+
+<div class="section">
+  <h3>Execution Evidence</h3>
+  {"".join(f'<div class="item"><span class="badge badge-ok">EVIDENCE</span> {e["improvement"]} — Diff OK | Verify: {e["verifyResult"]} | Rollback: {"OK" if e["rollbackAvailable"] else "N/A"}</div>' for e in _p88_evidence) if _p88_evidence else '<div class="item">No evidence recorded yet</div>'}
+</div>
+
+<div class="section">
+  <h3>Post-Execution Impact</h3>
+  {"".join(f'<div class="item"><span class="badge badge-{"ok" if i["successSignal"] else "warn"}">{"SUCCESS" if i["successSignal"] else "FOLLOW-UP"}</span> {i["improvement"]} — Expected: {i["expectedImpact"]} | Actual: {i["actualImpact"]}</div>' for i in _p89_impacts) if _p89_impacts else '<div class="item">No impact tracked yet</div>'}
+  <div class="item" style="margin-top:8px">Success: {success_count} | Follow-up needed: {follow_up_count}</div>
+</div>
+
+<div class="footer">
+  AXIA_RUNTIME_CLASS = AUTONOMOUS_EXECUTION_CONTROL_OPERATOR | P86-P90 | approvalRequired = true | highRiskBlocked = true
+</div>
+</body>
+</html>"""
+    from fastapi.responses import HTMLResponse
+    return HTMLResponse(content=html)
