@@ -2034,3 +2034,540 @@ async def axia_queue_dashboard():
         "</body></html>"
     )
     return HTMLResponse(content=html)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# AXIA P28: Autonomous Goal Alignment & Drift Prevention Runtime
+# Goal Lock / Scope Guard / Drift Detection / Loop Protection
+# Artifact Cleanliness / Completion Gate v2 / Human Alignment View
+# ─────────────────────────────────────────────────────────────────────────────
+
+from pydantic import BaseModel as _P28BaseModel
+import threading as _p28_threading
+from collections import defaultdict as _p28_defaultdict
+from datetime import datetime as _p28_dt, timezone as _p28_tz
+
+# ─── P28 In-Memory State ─────────────────────────────────────────────────────
+
+_p28_lock = _p28_threading.RLock()  # RLock: reentrant to prevent deadlock in nested calls
+
+_p28_goal_state = {
+    "goalId": None,
+    "goalSummary": None,
+    "allowedScope": [],
+    "forbiddenScope": [
+        "DB migration", "auth redesign", "payment", "deploy rewrite",
+        "secret rotation", "delete all", "drop table", "infra change"
+    ],
+    "completionDefinition": {
+        "goalAchieved": False,
+        "verifyPass": False,
+        "browserVerifyPass": False,
+        "riskAccepted": False,
+        "scopeClean": True,
+        "artifactClean": True,
+    },
+    "lockedAt": None,
+}
+
+_p28_drift_state = {
+    "driftDetected": False,
+    "driftReason": None,
+    "driftAt": None,
+}
+
+_p28_loop_counters: dict = _p28_defaultdict(int)
+_p28_loop_limits = {
+    "verify": 5,
+    "retry": 3,
+    "rewrite": 5,
+    "pr_reopen": 3,
+}
+
+_p28_artifact_banned = [
+    "tmp", "backup", "node_modules", "__pycache__",
+    "dist", "coverage", ".cache", ".DS_Store"
+]
+
+_p28_scope_violations: list = []
+_p28_event_log: list = []
+
+
+def _p28_now() -> str:
+    return _p28_dt.now(_p28_tz.utc).strftime("%Y-%m-%dT%H:%M:%S JST")
+
+
+def _p28_log_event(event_type: str, detail: str):
+    with _p28_lock:
+        _p28_event_log.append({
+            "type": event_type,
+            "detail": detail,
+            "timestamp": _p28_now(),
+        })
+        if len(_p28_event_log) > 200:
+            _p28_event_log.pop(0)
+
+
+# ─── P28 Schemas ─────────────────────────────────────────────────────────────
+
+class P28GoalLockRequest(_P28BaseModel):
+    goalSummary: str
+    allowedScope: list = []
+    forbiddenScope: list = []
+    completionDefinition: dict = {}
+
+
+class P28ScopeCheckRequest(_P28BaseModel):
+    changedFiles: list = []
+    description: str = ""
+
+
+# ─── P28 Endpoints ───────────────────────────────────────────────────────────
+
+@router.get("/axia-alignment", response_class=HTMLResponse)
+async def axia_alignment_dashboard():
+    """P28: Human Alignment View Dashboard"""
+    with _p28_lock:
+        goal = dict(_p28_goal_state)
+        drift = dict(_p28_drift_state)
+        loops = dict(_p28_loop_counters)
+        violations = list(_p28_scope_violations[-5:])
+        events = list(_p28_event_log[-10:])
+
+    now = _p28_now()
+
+    # Goal section
+    goal_summary = goal["goalSummary"] or "（未設定）"
+    goal_id = goal["goalId"] or "—"
+    locked_at = goal["lockedAt"] or "—"
+
+    # Allowed scope
+    allowed_html = ""
+    for s in (goal["allowedScope"] or ["（未設定）"]):
+        allowed_html += f"<div class='scope-item scope-allowed'>✅ {s}</div>"
+
+    # Forbidden scope
+    forbidden_html = ""
+    for s in (goal["forbiddenScope"] or []):
+        forbidden_html += f"<div class='scope-item scope-forbidden'>🚫 {s}</div>"
+
+    # Drift status
+    drift_class = "badge-drift" if drift["driftDetected"] else "badge-clean"
+    drift_label = "⚠️ DRIFT DETECTED" if drift["driftDetected"] else "✅ ON TRACK"
+    drift_reason = drift["driftReason"] or "—"
+
+    # Loop counters
+    loop_html = ""
+    for k, v in _p28_loop_limits.items():
+        count = loops.get(k, 0)
+        bar_pct = min(100, int(count / v * 100))
+        bar_class = "bar-danger" if count >= v else ("bar-warn" if count >= v * 0.6 else "bar-ok")
+        loop_html += (
+            f"<div class='loop-row'>"
+            f"  <span class='loop-label'>{k}</span>"
+            f"  <div class='loop-bar-bg'><div class='loop-bar {bar_class}' style='width:{bar_pct}%'></div></div>"
+            f"  <span class='loop-count'>{count}/{v}</span>"
+            f"</div>"
+        )
+
+    # Completion gate
+    cd = goal["completionDefinition"]
+    gate_items = [
+        ("goal達成", cd.get("goalAchieved", False)),
+        ("Verify PASS", cd.get("verifyPass", False)),
+        ("Browser Verify PASS", cd.get("browserVerifyPass", False)),
+        ("Risk 許容", cd.get("riskAccepted", False)),
+        ("Scope クリーン", cd.get("scopeClean", True)),
+        ("Artifact クリーン", cd.get("artifactClean", True)),
+    ]
+    gate_html = ""
+    all_pass = all(v for _, v in gate_items)
+    for label, ok in gate_items:
+        icon = "✅" if ok else "⏳"
+        cls = "gate-ok" if ok else "gate-pending"
+        gate_html += f"<div class='gate-item {cls}'>{icon} {label}</div>"
+    gate_status = "DONE 可能" if all_pass else "DONE 禁止"
+    gate_status_cls = "gate-done" if all_pass else "gate-blocked"
+
+    # Violations
+    viol_html = ""
+    if violations:
+        for v in violations:
+            viol_html += f"<div class='violation-item'>🚫 {v['file']} — {v['reason']}</div>"
+    else:
+        viol_html = "<div class='violation-none'>違反なし</div>"
+
+    # Events
+    event_html = ""
+    for e in reversed(events):
+        event_html += f"<div class='event-row'><span class='event-type'>{e['type']}</span> {e['detail']} <span class='event-time'>{e['timestamp']}</span></div>"
+    if not event_html:
+        event_html = "<div class='event-none'>イベントなし</div>"
+
+    html = (
+        "<!DOCTYPE html><html lang='ja'><head>"
+        "<meta charset='UTF-8'>"
+        "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+        "<title>AXIA Goal Alignment</title>"
+        "<style>"
+        "* { box-sizing: border-box; margin: 0; padding: 0; }"
+        "body { background: #0d1117; color: #e6edf3; font-family: 'Segoe UI', sans-serif; font-size: 14px; }"
+        ".header { display: flex; align-items: center; justify-content: space-between; padding: 16px 24px; background: #161b22; border-bottom: 1px solid #30363d; }"
+        ".header h1 { font-size: 20px; font-weight: 700; color: #58a6ff; }"
+        ".badge-clean { background: #1a7f37; color: #fff; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 700; }"
+        ".badge-drift { background: #da3633; color: #fff; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 700; }"
+        ".gov-bar { display: flex; gap: 24px; padding: 10px 24px; background: #0d1117; border-bottom: 1px solid #21262d; font-size: 12px; color: #8b949e; }"
+        ".main { padding: 20px 24px; display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }"
+        "@media (max-width: 700px) { .main { grid-template-columns: 1fr; } }"
+        ".card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px; }"
+        ".card-title { font-size: 13px; font-weight: 700; color: #8b949e; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; }"
+        ".goal-summary { font-size: 18px; font-weight: 700; color: #e6edf3; margin-bottom: 8px; }"
+        ".goal-meta { font-size: 11px; color: #8b949e; }"
+        ".scope-item { padding: 6px 10px; border-radius: 4px; margin-bottom: 4px; font-size: 12px; }"
+        ".scope-allowed { background: #1a2e1a; color: #3fb950; border: 1px solid #1a7f37; }"
+        ".scope-forbidden { background: #2e1a1a; color: #f85149; border: 1px solid #da3633; }"
+        ".loop-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }"
+        ".loop-label { width: 80px; font-size: 12px; color: #8b949e; }"
+        ".loop-bar-bg { flex: 1; height: 8px; background: #21262d; border-radius: 4px; overflow: hidden; }"
+        ".loop-bar { height: 100%; border-radius: 4px; transition: width 0.3s; }"
+        ".bar-ok { background: #1a7f37; }"
+        ".bar-warn { background: #9e6a03; }"
+        ".bar-danger { background: #da3633; }"
+        ".loop-count { width: 40px; font-size: 11px; color: #8b949e; text-align: right; }"
+        ".gate-item { padding: 6px 10px; border-radius: 4px; margin-bottom: 4px; font-size: 12px; }"
+        ".gate-ok { background: #1a2e1a; color: #3fb950; }"
+        ".gate-pending { background: #1c2128; color: #8b949e; }"
+        ".gate-status { margin-top: 12px; padding: 8px 12px; border-radius: 6px; font-weight: 700; text-align: center; }"
+        ".gate-done { background: #1a7f37; color: #fff; }"
+        ".gate-blocked { background: #da3633; color: #fff; }"
+        ".drift-box { padding: 10px 14px; border-radius: 6px; margin-bottom: 8px; }"
+        ".drift-clean { background: #1a2e1a; border: 1px solid #1a7f37; }"
+        ".drift-alert { background: #2e1a1a; border: 1px solid #da3633; }"
+        ".drift-reason { font-size: 12px; color: #8b949e; margin-top: 4px; }"
+        ".violation-item { padding: 5px 8px; background: #2e1a1a; border-radius: 4px; margin-bottom: 4px; font-size: 12px; color: #f85149; }"
+        ".violation-none { color: #3fb950; font-size: 12px; }"
+        ".event-row { padding: 4px 0; border-bottom: 1px solid #21262d; font-size: 11px; color: #8b949e; }"
+        ".event-type { color: #58a6ff; font-weight: 700; margin-right: 6px; }"
+        ".event-time { float: right; color: #484f58; }"
+        ".event-none { color: #484f58; font-size: 12px; }"
+        ".footer { text-align: center; padding: 16px; font-size: 11px; color: #484f58; border-top: 1px solid #21262d; margin-top: 20px; }"
+        "</style>"
+        "<script>"
+        "const NOISE_FILTER = ['analysis','thinking','critic','learner','debug','trace'];"
+        "function sanitize(s) {"
+        "  if (typeof s !== 'string') return '';"
+        "  for (const n of NOISE_FILTER) { if (s.toLowerCase().includes(n)) return ''; }"
+        "  return s;"
+        "}"
+        "function autoRefresh() {"
+        "  fetch('/api/axia-alignment/state').then(r => r.json()).then(d => {"
+        "    const el = document.getElementById('align-time');"
+        "    if (el) el.textContent = sanitize(d.serverTime) || '';"
+        "  }).catch(() => {});"
+        "}"
+        "setInterval(autoRefresh, 10000);"
+        "</script>"
+        "</head><body>"
+        "<div class='header'>"
+        "  <h1>AXIA Goal Alignment</h1>"
+        f"  <span id='align-time' style='font-size:12px;color:#8b949e'>{now}</span>"
+        f"  <span class='{drift_class}'>{drift_label}</span>"
+        "</div>"
+        "<div class='gov-bar'>"
+        f"  <span>Goal ID: {goal_id}</span>"
+        f"  <span>Locked: {locked_at}</span>"
+        f"  <span>Completion Gate: <strong>{gate_status}</strong></span>"
+        "</div>"
+        "<div class='main'>"
+
+        # Card 1: Goal
+        "<div class='card'>"
+        "  <div class='card-title'>🎯 Goal</div>"
+        f"  <div class='goal-summary'>{goal_summary}</div>"
+        f"  <div class='goal-meta'>ID: {goal_id} | Locked: {locked_at}</div>"
+        "</div>"
+
+        # Card 2: Drift Detection
+        "<div class='card'>"
+        "  <div class='card-title'>🔍 Drift Detection</div>"
+        f"  <div class='drift-box {'drift-alert' if drift['driftDetected'] else 'drift-clean'}'>"
+        f"    <strong>{drift_label}</strong>"
+        f"    <div class='drift-reason'>理由: {drift_reason}</div>"
+        "  </div>"
+        "</div>"
+
+        # Card 3: Allowed Scope
+        "<div class='card'>"
+        "  <div class='card-title'>✅ Allowed Scope</div>"
+        f"  {allowed_html}"
+        "</div>"
+
+        # Card 4: Blocked Actions
+        "<div class='card'>"
+        "  <div class='card-title'>🚫 Blocked Actions</div>"
+        f"  {forbidden_html}"
+        "</div>"
+
+        # Card 5: Loop Protection
+        "<div class='card'>"
+        "  <div class='card-title'>🔄 Loop Protection</div>"
+        f"  {loop_html}"
+        "</div>"
+
+        # Card 6: Completion Gate v2
+        "<div class='card'>"
+        "  <div class='card-title'>🏁 Completion Gate v2</div>"
+        f"  {gate_html}"
+        f"  <div class='gate-status {gate_status_cls}'>{gate_status}</div>"
+        "</div>"
+
+        # Card 7: Scope Violations
+        "<div class='card'>"
+        "  <div class='card-title'>⚠️ Scope Violations</div>"
+        f"  {viol_html}"
+        "</div>"
+
+        # Card 8: Event Log
+        "<div class='card'>"
+        "  <div class='card-title'>📋 Event Log</div>"
+        f"  {event_html}"
+        "</div>"
+
+        "</div>"
+        "<div class='footer'>"
+        "  AXIA_RUNTIME_CLASS = GOAL_ALIGNED_AUTONOMOUS_OPERATOR<br>"
+        f"  Alignment Version: P28 | {now}"
+        "</div>"
+        "</body></html>"
+    )
+    return HTMLResponse(content=html)
+
+
+@router.get("/axia-alignment/state")
+async def axia_alignment_state():
+    """P28: Goal Alignment State JSON API"""
+    with _p28_lock:
+        goal = dict(_p28_goal_state)
+        drift = dict(_p28_drift_state)
+        loops = dict(_p28_loop_counters)
+        violations = list(_p28_scope_violations[-10:])
+        events = list(_p28_event_log[-20:])
+
+    cd = goal.get("completionDefinition", {})
+    all_gate_pass = all([
+        cd.get("goalAchieved", False),
+        cd.get("verifyPass", False),
+        cd.get("browserVerifyPass", False),
+        cd.get("riskAccepted", False),
+        cd.get("scopeClean", True),
+        cd.get("artifactClean", True),
+    ])
+
+    return {
+        "alignmentVersion": "P28",
+        "goal": {
+            "goalId": goal["goalId"],
+            "goalSummary": goal["goalSummary"],
+            "allowedScope": goal["allowedScope"],
+            "forbiddenScope": goal["forbiddenScope"],
+            "lockedAt": goal["lockedAt"],
+        },
+        "drift": {
+            "driftDetected": drift["driftDetected"],
+            "driftReason": drift["driftReason"],
+            "driftAt": drift["driftAt"],
+        },
+        "loopCounters": loops,
+        "loopLimits": _p28_loop_limits,
+        "completionGate": {
+            "items": cd,
+            "allPass": all_gate_pass,
+            "status": "DONE_ALLOWED" if all_gate_pass else "DONE_BLOCKED",
+        },
+        "scopeViolations": violations,
+        "artifactBanned": _p28_artifact_banned,
+        "recentEvents": events,
+        "serverTime": _p28_now(),
+    }
+
+
+@router.post("/axia-alignment/lock")
+async def axia_alignment_lock(req: P28GoalLockRequest):
+    """P28: Goal Lock — fix goal, scope, completion definition"""
+    import uuid as _uuid
+    goal_id = f"goal-{_uuid.uuid4().hex[:8]}"
+    with _p28_lock:
+        _p28_goal_state["goalId"] = goal_id
+        _p28_goal_state["goalSummary"] = req.goalSummary
+        _p28_goal_state["allowedScope"] = req.allowedScope or []
+        if req.forbiddenScope:
+            _p28_goal_state["forbiddenScope"] = req.forbiddenScope
+        _p28_goal_state["lockedAt"] = _p28_now()
+        # Reset drift, loops, and completion gate on new goal lock
+        _p28_drift_state["driftDetected"] = False
+        _p28_drift_state["driftReason"] = None
+        _p28_drift_state["driftAt"] = None
+        _p28_loop_counters.clear()
+        _p28_scope_violations.clear()
+        # Reset completion gate to initial state (only scopeClean/artifactClean default True)
+        _p28_goal_state["completionDefinition"] = {
+            "goalAchieved": False,
+            "verifyPass": False,
+            "browserVerifyPass": False,
+            "riskAccepted": False,
+            "scopeClean": True,
+            "artifactClean": True,
+        }
+        if req.completionDefinition:
+            _p28_goal_state["completionDefinition"].update(req.completionDefinition)
+
+    _p28_log_event("GOAL_LOCK", f"Goal locked: {req.goalSummary}")
+
+    return {
+        "status": "locked",
+        "goalId": goal_id,
+        "goalSummary": req.goalSummary,
+        "allowedScope": req.allowedScope,
+        "forbiddenScope": _p28_goal_state["forbiddenScope"],
+        "lockedAt": _p28_goal_state["lockedAt"],
+    }
+
+
+@router.post("/axia-alignment/check")
+async def axia_alignment_check(req: P28ScopeCheckRequest):
+    """P28: Scope Guard — check changed files against allowed/forbidden scope"""
+    with _p28_lock:
+        allowed = list(_p28_goal_state["allowedScope"])
+        forbidden_scope = list(_p28_goal_state["forbiddenScope"])
+
+    violations = []
+    artifact_violations = []
+    safe_files = []
+
+    for f in req.changedFiles:
+        # Artifact cleanliness check
+        for banned in _p28_artifact_banned:
+            if banned in f:
+                artifact_violations.append({
+                    "file": f,
+                    "reason": f"禁止artifact: {banned}",
+                    "type": "ARTIFACT"
+                })
+                break
+        else:
+            # Scope check — if allowedScope is set, file must match
+            if allowed:
+                in_scope = any(a in f or f.startswith(a) for a in allowed)
+                if not in_scope:
+                    violations.append({
+                        "file": f,
+                        "reason": f"scope外ファイル (allowed: {allowed})",
+                        "type": "SCOPE_VIOLATION"
+                    })
+                else:
+                    safe_files.append(f)
+            else:
+                safe_files.append(f)
+
+    # Description forbidden scope check
+    desc_lower = req.description.lower()
+    desc_violations = []
+    for fs in forbidden_scope:
+        if fs.lower() in desc_lower:
+            desc_violations.append({
+                "file": "(description)",
+                "reason": f"禁止スコープ検出: {fs}",
+                "type": "FORBIDDEN_SCOPE"
+            })
+
+    all_violations = violations + artifact_violations + desc_violations
+
+    # Record violations
+    with _p28_lock:
+        for v in all_violations:
+            _p28_scope_violations.append(v)
+        if len(_p28_scope_violations) > 100:
+            del _p28_scope_violations[:-100]
+
+    if all_violations:
+        _p28_log_event("SCOPE_VIOLATION", f"{len(all_violations)} violation(s) detected")
+        return {
+            "status": "BLOCKED",
+            "safeStop": True,
+            "violations": all_violations,
+            "safeFiles": safe_files,
+            "message": f"SAFE STOP: {len(all_violations)}件のscope違反を検出",
+        }
+
+    _p28_log_event("SCOPE_CHECK", f"SAFE: {len(safe_files)} file(s) checked")
+    return {
+        "status": "SAFE",
+        "safeStop": False,
+        "violations": [],
+        "safeFiles": safe_files,
+        "message": "全ファイルがscope内です",
+    }
+
+
+@router.post("/axia-alignment/drift")
+async def axia_alignment_drift(body: dict):
+    """P28: Drift Detection — record drift event"""
+    action_type = body.get("actionType", "unknown")
+    detail = body.get("detail", "")
+
+    with _p28_lock:
+        count = _p28_loop_counters[action_type] + 1
+        _p28_loop_counters[action_type] = count
+        limit = _p28_loop_limits.get(action_type, 999)
+
+        if count >= limit:
+            _p28_drift_state["driftDetected"] = True
+            _p28_drift_state["driftReason"] = f"{action_type} loop: {count}/{limit}回 — 強制停止"
+            _p28_drift_state["driftAt"] = _p28_now()
+            _p28_log_event("DRIFT_DETECTED", f"{action_type}: {count}/{limit}")
+            return {
+                "status": "DRIFT_DETECTED",
+                "safeStop": True,
+                "actionType": action_type,
+                "count": count,
+                "limit": limit,
+                "message": f"目的から逸脱した可能性があります — {action_type} {count}/{limit}回",
+            }
+
+    _p28_log_event("LOOP_COUNT", f"{action_type}: {count}/{limit}")
+    return {
+        "status": "OK",
+        "safeStop": False,
+        "actionType": action_type,
+        "count": count,
+        "limit": limit,
+        "message": f"{action_type}: {count}/{limit}",
+    }
+
+
+@router.post("/axia-alignment/complete")
+async def axia_alignment_complete(body: dict):
+    """P28: Completion Gate v2 — update completion conditions"""
+    with _p28_lock:
+        cd = _p28_goal_state["completionDefinition"]
+        for key in ["goalAchieved", "verifyPass", "browserVerifyPass", "riskAccepted", "scopeClean", "artifactClean"]:
+            if key in body:
+                cd[key] = bool(body[key])
+        all_pass = all([
+            cd.get("goalAchieved", False),
+            cd.get("verifyPass", False),
+            cd.get("browserVerifyPass", False),
+            cd.get("riskAccepted", False),
+            cd.get("scopeClean", True),
+            cd.get("artifactClean", True),
+        ])
+
+    _p28_log_event("COMPLETION_GATE", f"allPass={all_pass}")
+    return {
+        "status": "DONE_ALLOWED" if all_pass else "DONE_BLOCKED",
+        "allPass": all_pass,
+        "completionDefinition": cd,
+        "message": "DONE 可能" if all_pass else "DONE 禁止 — 全条件を満たしてください",
+    }
+
+# ─── End of P28 ──────────────────────────────────────────────────────────────
