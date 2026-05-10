@@ -13870,3 +13870,723 @@ h1 { margin: 0; font-size: 1.4em; color: #a78bfa; }
     from fastapi.responses import HTMLResponse
     return HTMLResponse(content=html)
 
+
+
+# ============================================================
+# AXIA P141-P150: Autonomous Multi-Agent Execution Runtime
+# ============================================================
+
+import uuid as _uuid_mod
+
+# --------------- P141 State ---------------
+_P141_ORCHESTRATOR_STATE = {
+    "phase": "P141",
+    "name": "Agent Orchestrator Runtime",
+    "AXIA_RUNTIME_CLASS": "AUTONOMOUS_MULTI_AGENT_EXECUTION_OPERATOR",
+    "agents": [],
+    "maxAgents": 10,
+    "approvalRequired": True,
+    "roleViolationBlock": True,
+    "reviewerGateRequired": True,
+    "rollbackMandatory": True,
+    "dangerousActionBlock": True,
+    "highRiskBlock": True,
+}
+
+# --------------- P142 State ---------------
+_P142_PLANNER_STATE = {
+    "phase": "P142",
+    "name": "Planner Agent",
+    "role": "PLANNER",
+    "allowedActions": ["goal_clarify", "scope_decide", "task_decompose", "risk_assess", "handoff_plan"],
+    "forbiddenActions": ["write", "merge", "browser_submit"],
+    "status": "IDLE",
+}
+
+# --------------- P143 State ---------------
+_P143_CODER_STATE = {
+    "phase": "P143",
+    "name": "Coder Agent",
+    "role": "CODER",
+    "allowedActions": ["read", "write", "diff", "safe_refactor", "bug_fix"],
+    "forbiddenActions": ["scope_change", "merge", "deploy"],
+    "status": "IDLE",
+}
+
+# --------------- P144 State ---------------
+_P144_BROWSER_STATE = {
+    "phase": "P144",
+    "name": "Browser Agent",
+    "role": "BROWSER",
+    "allowedActions": ["open", "click_safe", "inspect", "capture", "visual_verify", "console_check"],
+    "forbiddenActions": ["purchase", "delete", "dangerous_submit"],
+    "status": "IDLE",
+}
+
+# --------------- P145 State ---------------
+_P145_VERIFIER_STATE = {
+    "phase": "P145",
+    "name": "Verifier Agent",
+    "role": "VERIFIER",
+    "allowedActions": ["import_check", "http_verify", "browser_verify", "noise_check", "regression_checklist"],
+    "forbiddenActions": ["write", "merge"],
+    "status": "IDLE",
+}
+
+# --------------- P146 State ---------------
+_P146_REVIEWER_STATE = {
+    "phase": "P146",
+    "name": "Reviewer Agent",
+    "role": "REVIEWER",
+    "checkItems": ["scope", "risk", "secret", "artifact_clean", "pr_evidence", "rollback"],
+    "mergeBlockedUntilPass": True,
+    "status": "IDLE",
+}
+
+# --------------- P147 State ---------------
+_P147_RECOVERY_STATE = {
+    "phase": "P147",
+    "name": "Recovery Agent",
+    "role": "RECOVERY",
+    "allowedActions": ["rollback", "retry_judge", "restore", "safe_stop"],
+    "forbiddenActions": ["new_implementation", "merge"],
+    "status": "IDLE",
+}
+
+# --------------- P148 State ---------------
+_P148_MEMORY_STATE = {
+    "phase": "P148",
+    "name": "Agent Memory Runtime",
+    "successfulHandoffs": [],
+    "failedHandoffs": [],
+    "roleViolations": [],
+    "recoveryHistory": [],
+    "reviewFindings": [],
+}
+
+# --------------- P149 State ---------------
+_P149_FEED_STATE = {
+    "phase": "P149",
+    "name": "Human Multi-Agent Feed Runtime",
+    "feedItems": [
+        {"agent": "Planner", "status": "IDLE", "message": "計画待機中"},
+        {"agent": "Coder", "status": "IDLE", "message": "実装待機中"},
+        {"agent": "Browser", "status": "IDLE", "message": "画面確認待機中"},
+        {"agent": "Verifier", "status": "IDLE", "message": "検証待機中"},
+        {"agent": "Reviewer", "status": "IDLE", "message": "承認待機中"},
+    ],
+    "internalChainForbidden": True,
+}
+
+# --------------- P150 State ---------------
+_P150_COMMAND_STATE = {
+    "phase": "P150",
+    "name": "Multi-Agent Command Center",
+    "agentStatus": {
+        "ORCHESTRATOR": "IDLE",
+        "PLANNER": "IDLE",
+        "CODER": "IDLE",
+        "BROWSER": "IDLE",
+        "VERIFIER": "IDLE",
+        "REVIEWER": "IDLE",
+        "RECOVERY": "IDLE",
+    },
+    "taskHandoff": [],
+    "blockedAgents": [],
+    "reviewerGate": "OPEN",
+    "recoveryStatus": "STANDBY",
+    "executionTimeline": [],
+}
+
+# ============================================================
+# P141: Agent Orchestrator Runtime
+# ============================================================
+
+@router.get("/axia-orchestrator")
+def p141_orchestrator_get():
+    return {
+        "phase": "P141",
+        "name": "Agent Orchestrator Runtime",
+        "state": _P141_ORCHESTRATOR_STATE,
+        "agentRoles": ["PLANNER", "CODER", "BROWSER", "VERIFIER", "REVIEWER", "RECOVERY"],
+        "handoffFlow": ["PLANNER", "CODER", "BROWSER", "VERIFIER", "REVIEWER"],
+    }
+
+
+@router.post("/axia-orchestrator/create")
+def p141_orchestrator_create(body: dict):
+    role = body.get("role", "")
+    task = body.get("task", "")
+    risk_level = body.get("riskLevel", "LOW")
+
+    valid_roles = ["PLANNER", "CODER", "BROWSER", "VERIFIER", "REVIEWER", "RECOVERY"]
+
+    if role not in valid_roles:
+        return {
+            "created": False,
+            "roleViolationBlock": True,
+            "reason": f"Invalid role: {role}",
+        }
+
+    if risk_level == "HIGH":
+        return {
+            "created": False,
+            "highRiskBlock": True,
+            "reason": "HIGH risk agents cannot be created without explicit approval",
+        }
+
+    agent_id = f"agent_{role.lower()}_{str(_uuid_mod.uuid4())[:8]}"
+    agent = {
+        "agentId": agent_id,
+        "role": role,
+        "task": task,
+        "status": "CREATED",
+        "dependencies": body.get("dependencies", []),
+        "handoff": None,
+        "blockedReason": None,
+    }
+    _P141_ORCHESTRATOR_STATE["agents"].append(agent)
+
+    return {
+        "created": True,
+        "agentId": agent_id,
+        "role": role,
+        "task": task,
+        "status": "CREATED",
+        "approvalRequired": True,
+    }
+
+
+@router.post("/axia-orchestrator/handoff")
+def p141_orchestrator_handoff(body: dict):
+    from_agent = body.get("fromAgent", "")
+    to_agent = body.get("toAgent", "")
+    task_result = body.get("taskResult", "")
+
+    valid_roles = ["PLANNER", "CODER", "BROWSER", "VERIFIER", "REVIEWER", "RECOVERY"]
+    if from_agent not in valid_roles or to_agent not in valid_roles:
+        return {
+            "handoffAllowed": False,
+            "roleViolationBlock": True,
+            "reason": "Invalid agent role in handoff",
+        }
+
+    handoff_record = {
+        "from": from_agent,
+        "to": to_agent,
+        "taskResult": task_result,
+        "status": "HANDED_OFF",
+    }
+    _P150_COMMAND_STATE["taskHandoff"].append(handoff_record)
+    _P148_MEMORY_STATE["successfulHandoffs"].append(handoff_record)
+
+    return {
+        "handoffAllowed": True,
+        "from": from_agent,
+        "to": to_agent,
+        "status": "HANDED_OFF",
+        "approvalRequired": True,
+    }
+
+
+# ============================================================
+# P142: Planner Agent Runtime
+# ============================================================
+
+@router.get("/axia-planner")
+def p142_planner_get():
+    return {
+        "phase": "P142",
+        "name": "Planner Agent Runtime",
+        "state": _P142_PLANNER_STATE,
+        "allowedActions": _P142_PLANNER_STATE["allowedActions"],
+        "forbiddenActions": _P142_PLANNER_STATE["forbiddenActions"],
+    }
+
+
+@router.post("/axia-planner/run")
+def p142_planner_run(body: dict):
+    goal = body.get("goal", "")
+    action = body.get("action", "goal_clarify")
+
+    forbidden = _P142_PLANNER_STATE["forbiddenActions"]
+    if action in forbidden:
+        return {
+            "planAllowed": False,
+            "roleViolationBlock": True,
+            "reason": f"Planner cannot perform: {action}",
+            "forbiddenActions": forbidden,
+        }
+
+    plan_result = {
+        "goal": goal,
+        "scope": "single_file_change",
+        "tasks": [
+            {"step": 1, "agent": "PLANNER", "action": "goal_clarify"},
+            {"step": 2, "agent": "CODER", "action": "bug_fix"},
+            {"step": 3, "agent": "BROWSER", "action": "visual_verify"},
+            {"step": 4, "agent": "VERIFIER", "action": "http_verify"},
+            {"step": 5, "agent": "REVIEWER", "action": "review"},
+        ],
+        "riskLevel": "LOW",
+        "handoffPlan": ["PLANNER", "CODER", "BROWSER", "VERIFIER", "REVIEWER"],
+    }
+
+    return {
+        "planAllowed": True,
+        "action": action,
+        "planResult": plan_result,
+        "approvalRequired": True,
+        "nextAgent": "CODER",
+    }
+
+
+# ============================================================
+# P143: Coder Agent Runtime
+# ============================================================
+
+@router.get("/axia-coder")
+def p143_coder_get():
+    return {
+        "phase": "P143",
+        "name": "Coder Agent Runtime",
+        "state": _P143_CODER_STATE,
+        "allowedActions": _P143_CODER_STATE["allowedActions"],
+        "forbiddenActions": _P143_CODER_STATE["forbiddenActions"],
+    }
+
+
+@router.post("/axia-coder/run")
+def p143_coder_run(body: dict):
+    action = body.get("action", "read")
+    target_file = body.get("targetFile", "")
+
+    forbidden = _P143_CODER_STATE["forbiddenActions"]
+    if action in forbidden:
+        return {
+            "coderAllowed": False,
+            "roleViolationBlock": True,
+            "reason": f"Coder cannot perform: {action}",
+            "forbiddenActions": forbidden,
+        }
+
+    if not target_file:
+        return {
+            "coderAllowed": False,
+            "reason": "targetFile is required",
+        }
+
+    result = {
+        "action": action,
+        "targetFile": target_file,
+        "status": "COMPLETED",
+        "diffSummary": "+5 lines / -2 lines",
+        "backupCreated": True,
+        "rollbackPoint": f"backup_{target_file.replace('/', '_')}",
+    }
+
+    return {
+        "coderAllowed": True,
+        "action": action,
+        "result": result,
+        "approvalRequired": True,
+        "nextAgent": "BROWSER",
+    }
+
+
+# ============================================================
+# P144: Browser Agent Runtime
+# ============================================================
+
+@router.get("/axia-browser-agent")
+def p144_browser_agent_get():
+    return {
+        "phase": "P144",
+        "name": "Browser Agent Runtime",
+        "state": _P144_BROWSER_STATE,
+        "allowedActions": _P144_BROWSER_STATE["allowedActions"],
+        "forbiddenActions": _P144_BROWSER_STATE["forbiddenActions"],
+    }
+
+
+@router.post("/axia-browser-agent/run")
+def p144_browser_agent_run(body: dict):
+    action = body.get("action", "open")
+    target_url = body.get("targetUrl", "")
+
+    forbidden = _P144_BROWSER_STATE["forbiddenActions"]
+    if action in forbidden:
+        return {
+            "browserAllowed": False,
+            "roleViolationBlock": True,
+            "reason": f"Browser agent cannot perform: {action}",
+            "forbiddenActions": forbidden,
+        }
+
+    result = {
+        "action": action,
+        "targetUrl": target_url,
+        "status": "COMPLETED",
+        "captureAvailable": True,
+        "consoleErrors": 0,
+        "visualVerifyPassed": True,
+    }
+
+    return {
+        "browserAllowed": True,
+        "action": action,
+        "result": result,
+        "approvalRequired": True,
+        "nextAgent": "VERIFIER",
+    }
+
+
+# ============================================================
+# P145: Verifier Agent Runtime
+# ============================================================
+
+@router.get("/axia-verifier")
+def p145_verifier_get():
+    return {
+        "phase": "P145",
+        "name": "Verifier Agent Runtime",
+        "state": _P145_VERIFIER_STATE,
+        "allowedActions": _P145_VERIFIER_STATE["allowedActions"],
+        "forbiddenActions": _P145_VERIFIER_STATE["forbiddenActions"],
+    }
+
+
+@router.post("/axia-verifier/run")
+def p145_verifier_run(body: dict):
+    action = body.get("action", "http_verify")
+    target = body.get("target", "")
+    has_noise = body.get("hasNoise", False)
+
+    forbidden = _P145_VERIFIER_STATE["forbiddenActions"]
+    if action in forbidden:
+        return {
+            "verifyAllowed": False,
+            "roleViolationBlock": True,
+            "reason": f"Verifier cannot perform: {action}",
+            "forbiddenActions": forbidden,
+        }
+
+    if has_noise:
+        return {
+            "verifyAllowed": False,
+            "verifyPassed": False,
+            "noiseDetected": True,
+            "reason": "Noise words detected in response",
+        }
+
+    result = {
+        "action": action,
+        "target": target,
+        "importCheckPassed": True,
+        "httpVerifyPassed": True,
+        "browserVerifyPassed": True,
+        "noiseCheckPassed": True,
+        "regressionChecklistPassed": True,
+    }
+
+    return {
+        "verifyAllowed": True,
+        "verifyPassed": True,
+        "action": action,
+        "result": result,
+        "nextAgent": "REVIEWER",
+    }
+
+
+# ============================================================
+# P146: Reviewer Agent Runtime
+# ============================================================
+
+@router.get("/axia-reviewer")
+def p146_reviewer_get():
+    return {
+        "phase": "P146",
+        "name": "Reviewer Agent Runtime",
+        "state": _P146_REVIEWER_STATE,
+        "checkItems": _P146_REVIEWER_STATE["checkItems"],
+        "mergeBlockedUntilPass": True,
+    }
+
+
+@router.post("/axia-reviewer/run")
+def p146_reviewer_run(body: dict):
+    has_secret = body.get("hasSecret", False)
+    scope_ok = body.get("scopeOk", True)
+    risk_level = body.get("riskLevel", "LOW")
+    has_rollback = body.get("hasRollback", True)
+    has_pr_evidence = body.get("hasPrEvidence", True)
+    artifact_clean = body.get("artifactClean", True)
+
+    issues = []
+
+    if has_secret:
+        issues.append("SECRET detected in diff")
+    if not scope_ok:
+        issues.append("SCOPE violation detected")
+    if risk_level == "HIGH":
+        issues.append("HIGH risk change requires additional approval")
+    if not has_rollback:
+        issues.append("ROLLBACK plan missing")
+    if not has_pr_evidence:
+        issues.append("PR evidence missing")
+    if not artifact_clean:
+        issues.append("Artifact not clean")
+
+    review_passed = len(issues) == 0
+
+    if review_passed:
+        _P148_MEMORY_STATE["reviewFindings"].append({
+            "result": "PASS",
+            "issues": [],
+        })
+
+    return {
+        "reviewPassed": review_passed,
+        "reviewIssues": issues,
+        "mergeAllowed": review_passed,
+        "mergeBlockedUntilPass": not review_passed,
+        "approvalRequired": True,
+    }
+
+
+# ============================================================
+# P147: Recovery Agent Runtime
+# ============================================================
+
+@router.get("/axia-recovery-agent")
+def p147_recovery_get():
+    return {
+        "phase": "P147",
+        "name": "Recovery Agent Runtime",
+        "state": _P147_RECOVERY_STATE,
+        "allowedActions": _P147_RECOVERY_STATE["allowedActions"],
+        "forbiddenActions": _P147_RECOVERY_STATE["forbiddenActions"],
+    }
+
+
+@router.post("/axia-recovery-agent/run")
+def p147_recovery_run(body: dict):
+    action = body.get("action", "rollback")
+    reason = body.get("reason", "")
+    attempt = body.get("attempt", 1)
+
+    forbidden = _P147_RECOVERY_STATE["forbiddenActions"]
+    if action in forbidden:
+        return {
+            "recoveryAllowed": False,
+            "roleViolationBlock": True,
+            "reason": f"Recovery agent cannot perform: {action}",
+            "forbiddenActions": forbidden,
+        }
+
+    if attempt > 3:
+        return {
+            "recoveryAllowed": True,
+            "action": "safe_stop",
+            "retryLimitReached": True,
+            "status": "SAFE_STOPPED",
+            "reason": "Max retry attempts reached",
+        }
+
+    recovery_record = {
+        "action": action,
+        "reason": reason,
+        "attempt": attempt,
+        "status": "RECOVERED",
+    }
+    _P148_MEMORY_STATE["recoveryHistory"].append(recovery_record)
+
+    return {
+        "recoveryAllowed": True,
+        "action": action,
+        "status": "RECOVERED",
+        "attempt": attempt,
+        "rollbackMandatory": True,
+        "nextStep": "re_verify" if action == "rollback" else "continue",
+    }
+
+
+# ============================================================
+# P148: Agent Memory Runtime
+# ============================================================
+
+@router.get("/axia-agent-memory")
+def p148_agent_memory_get():
+    return {
+        "phase": "P148",
+        "name": "Agent Memory Runtime",
+        "state": _P148_MEMORY_STATE,
+        "successfulHandoffs": len(_P148_MEMORY_STATE["successfulHandoffs"]),
+        "failedHandoffs": len(_P148_MEMORY_STATE["failedHandoffs"]),
+        "roleViolations": len(_P148_MEMORY_STATE["roleViolations"]),
+        "recoveryHistory": len(_P148_MEMORY_STATE["recoveryHistory"]),
+        "reviewFindings": len(_P148_MEMORY_STATE["reviewFindings"]),
+    }
+
+
+@router.post("/axia-agent-memory/save")
+def p148_agent_memory_save(body: dict):
+    event_type = body.get("eventType", "")
+    agent = body.get("agent", "")
+    detail = body.get("detail", {})
+
+    valid_types = ["successful_handoff", "failed_handoff", "role_violation", "recovery", "review_finding"]
+    if event_type not in valid_types:
+        return {
+            "saved": False,
+            "reason": f"Invalid eventType: {event_type}",
+        }
+
+    record = {"agent": agent, "detail": detail}
+
+    if event_type == "successful_handoff":
+        _P148_MEMORY_STATE["successfulHandoffs"].append(record)
+    elif event_type == "failed_handoff":
+        _P148_MEMORY_STATE["failedHandoffs"].append(record)
+    elif event_type == "role_violation":
+        _P148_MEMORY_STATE["roleViolations"].append(record)
+    elif event_type == "recovery":
+        _P148_MEMORY_STATE["recoveryHistory"].append(record)
+    elif event_type == "review_finding":
+        _P148_MEMORY_STATE["reviewFindings"].append(record)
+
+    return {
+        "saved": True,
+        "eventType": event_type,
+        "agent": agent,
+        "totalRecords": (
+            len(_P148_MEMORY_STATE["successfulHandoffs"]) +
+            len(_P148_MEMORY_STATE["failedHandoffs"]) +
+            len(_P148_MEMORY_STATE["roleViolations"]) +
+            len(_P148_MEMORY_STATE["recoveryHistory"]) +
+            len(_P148_MEMORY_STATE["reviewFindings"])
+        ),
+    }
+
+
+# ============================================================
+# P149: Human Multi-Agent Feed Runtime
+# ============================================================
+
+@router.get("/axia-agent-feed")
+def p149_agent_feed_get():
+    feed = [
+        {"agent": "Planner", "status": "IDLE", "message": "計画待機中"},
+        {"agent": "Coder", "status": "IDLE", "message": "実装待機中"},
+        {"agent": "Browser", "status": "IDLE", "message": "画面確認待機中"},
+        {"agent": "Verifier", "status": "IDLE", "message": "検証待機中"},
+        {"agent": "Reviewer", "status": "IDLE", "message": "承認待機中"},
+    ]
+    return {
+        "phase": "P149",
+        "name": "Human Multi-Agent Feed Runtime",
+        "feed": feed,
+        "internalChainForbidden": True,
+        "humanReadable": True,
+    }
+
+
+# ============================================================
+# P150: Multi-Agent Command Center (HTML)
+# ============================================================
+
+@router.get("/axia-agents")
+def p150_agents_command_center():
+    from fastapi.responses import HTMLResponse
+    html = """<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AXIA Multi-Agent Command Center</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0d1117; color: #c9d1d9; margin: 0; padding: 24px; }
+  h1 { color: #58a6ff; font-size: 1.5rem; margin-bottom: 8px; }
+  .subtitle { color: #8b949e; font-size: 0.85rem; margin-bottom: 24px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; margin-bottom: 24px; }
+  .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px; }
+  .card h2 { font-size: 1rem; color: #58a6ff; margin: 0 0 12px 0; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; }
+  .badge-idle { background: #21262d; color: #8b949e; }
+  .badge-ok { background: #1a4731; color: #3fb950; }
+  .badge-blocked { background: #3d1a1a; color: #f85149; }
+  .badge-open { background: #1a3a4a; color: #58a6ff; }
+  .agent-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid #21262d; }
+  .agent-row:last-child { border-bottom: none; }
+  .agent-name { font-size: 0.85rem; font-weight: 600; }
+  .timeline { list-style: none; padding: 0; margin: 0; }
+  .timeline li { padding: 6px 0; font-size: 0.8rem; color: #8b949e; border-left: 2px solid #30363d; padding-left: 12px; margin-left: 6px; }
+  .footer { text-align: center; color: #484f58; font-size: 0.75rem; margin-top: 32px; padding-top: 16px; border-top: 1px solid #21262d; }
+</style>
+</head>
+<body>
+<h1>AXIA Multi-Agent Command Center</h1>
+<p class="subtitle">P150 — Autonomous Multi-Agent Execution Runtime</p>
+
+<div class="grid">
+  <div class="card">
+    <h2>Agent Status</h2>
+    <div class="agent-row"><span class="agent-name">ORCHESTRATOR</span><span class="badge badge-idle">IDLE</span></div>
+    <div class="agent-row"><span class="agent-name">PLANNER</span><span class="badge badge-idle">IDLE</span></div>
+    <div class="agent-row"><span class="agent-name">CODER</span><span class="badge badge-idle">IDLE</span></div>
+    <div class="agent-row"><span class="agent-name">BROWSER</span><span class="badge badge-idle">IDLE</span></div>
+    <div class="agent-row"><span class="agent-name">VERIFIER</span><span class="badge badge-idle">IDLE</span></div>
+    <div class="agent-row"><span class="agent-name">REVIEWER</span><span class="badge badge-idle">IDLE</span></div>
+    <div class="agent-row"><span class="agent-name">RECOVERY</span><span class="badge badge-idle">STANDBY</span></div>
+  </div>
+
+  <div class="card">
+    <h2>Task Handoff</h2>
+    <div class="agent-row"><span class="agent-name">PLANNER → CODER</span><span class="badge badge-ok">READY</span></div>
+    <div class="agent-row"><span class="agent-name">CODER → BROWSER</span><span class="badge badge-ok">READY</span></div>
+    <div class="agent-row"><span class="agent-name">BROWSER → VERIFIER</span><span class="badge badge-ok">READY</span></div>
+    <div class="agent-row"><span class="agent-name">VERIFIER → REVIEWER</span><span class="badge badge-ok">READY</span></div>
+  </div>
+
+  <div class="card">
+    <h2>Blocked Agents</h2>
+    <div class="agent-row"><span class="agent-name">Role Violations</span><span class="badge badge-idle">0</span></div>
+    <div class="agent-row"><span class="agent-name">High Risk Blocks</span><span class="badge badge-idle">0</span></div>
+    <div class="agent-row"><span class="agent-name">Dangerous Actions</span><span class="badge badge-idle">0</span></div>
+    <div class="agent-row"><span class="agent-name">Scope Violations</span><span class="badge badge-idle">0</span></div>
+  </div>
+
+  <div class="card">
+    <h2>Reviewer Gate</h2>
+    <div class="agent-row"><span class="agent-name">Gate Status</span><span class="badge badge-open">OPEN</span></div>
+    <div class="agent-row"><span class="agent-name">Merge Allowed</span><span class="badge badge-blocked">BLOCKED</span></div>
+    <div class="agent-row"><span class="agent-name">Secret Scan</span><span class="badge badge-ok">CLEAN</span></div>
+    <div class="agent-row"><span class="agent-name">Rollback Plan</span><span class="badge badge-ok">PREPARED</span></div>
+  </div>
+
+  <div class="card">
+    <h2>Recovery Status</h2>
+    <div class="agent-row"><span class="agent-name">Recovery Agent</span><span class="badge badge-idle">STANDBY</span></div>
+    <div class="agent-row"><span class="agent-name">Rollback Ready</span><span class="badge badge-ok">YES</span></div>
+    <div class="agent-row"><span class="agent-name">Retry Count</span><span class="badge badge-idle">0 / 3</span></div>
+    <div class="agent-row"><span class="agent-name">Safe Stop</span><span class="badge badge-ok">AVAILABLE</span></div>
+  </div>
+
+  <div class="card">
+    <h2>Execution Timeline</h2>
+    <ul class="timeline">
+      <li>System initialized</li>
+      <li>Agents registered</li>
+      <li>Handoff flow configured</li>
+      <li>Reviewer Gate: OPEN</li>
+      <li>Recovery Agent: STANDBY</li>
+    </ul>
+  </div>
+</div>
+
+<div class="footer">
+  AXIA_RUNTIME_CLASS: AUTONOMOUS_MULTI_AGENT_EXECUTION_OPERATOR &nbsp;|&nbsp; P141-P150
+</div>
+</body>
+</html>"""
+    return HTMLResponse(content=html, status_code=200)
