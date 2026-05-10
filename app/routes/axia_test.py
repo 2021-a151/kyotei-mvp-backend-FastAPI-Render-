@@ -3068,3 +3068,560 @@ async def axia_team_safe_stop_reset():
     return {"status": "OK", "message": "Safe stop cleared"}
 
 # ─── End of P29 ──────────────────────────────────────────────────────────────
+
+
+# ============================================================
+# AXIA P30 — Human Work Operating System UX Runtime
+# ============================================================
+import uuid as _uuid30
+import threading as _p30_threading
+
+# ── P30 State ────────────────────────────────────────────────
+_p30_lock = _p30_threading.RLock()
+
+_p30_state = {
+    "workVersion": "P30",
+    "todayTasks": [],
+    "nowWorking": None,
+    "nextTask": None,
+    "approvalQueue": [],
+    "humanTimeline": [],
+    "pauseState": {
+        "active": False,
+        "reason": None,
+        "pausedAt": None,
+        "resumeNote": None,
+    },
+    "dailyBrief": {
+        "yesterdayContinue": [],
+        "warnings": [],
+        "recommendations": [],
+        "generatedAt": None,
+    },
+    "safeStop": {"active": False, "reason": None},
+    "noiseFilter": ["analysis", "thinking", "critic", "learner", "tool_call", "trace", "stack_trace"],
+}
+
+# ── Smart Status Language ────────────────────────────────────
+_p30_status_map = {
+    "task_": "タスク処理中",
+    "runtime_phase_": "処理フェーズ",
+    "verify_loop_detected": "修正を確認しています",
+    "waiting_approval": "承認待ち",
+    "browser_verify": "画面確認中",
+    "http_verify": "接続確認中",
+    "safe_stop": "安全停止中",
+    "running": "実行中",
+    "idle": "待機中",
+    "done": "完了",
+    "failed": "失敗",
+    "paused": "一時停止中",
+    "pending": "処理待ち",
+}
+
+def _p30_smart_lang(raw: str) -> str:
+    """Convert technical status to human-readable Japanese."""
+    if not raw:
+        return ""
+    lower = raw.lower()
+    for k, v in _p30_status_map.items():
+        if k in lower:
+            return v
+    # Remove technical prefixes
+    import re as _re
+    cleaned = _re.sub(r'[a-z]+_[0-9a-f]{4,}', '処理中', raw)
+    return cleaned
+
+def _p30_noise_clean(text: str) -> str:
+    """Remove noise words from text."""
+    if not text:
+        return ""
+    lower = text.lower()
+    for word in _p30_state["noiseFilter"]:
+        if word in lower:
+            return ""
+    return text
+
+def _p30_jst_now() -> str:
+    from datetime import datetime as _dt30, timezone, timedelta
+    jst = timezone(timedelta(hours=9))
+    return _dt30.now(jst).strftime("%Y-%m-%dT%H:%M:%S JST")
+
+def _p30_time_short() -> str:
+    from datetime import datetime as _dt30, timezone, timedelta
+    jst = timezone(timedelta(hours=9))
+    return _dt30.now(jst).strftime("%H:%M")
+
+def _p30_add_timeline(action: str, detail: str, result: str = "OK"):
+    """Add event to human timeline."""
+    with _p30_lock:
+        _p30_state["humanTimeline"].append({
+            "time": _p30_time_short(),
+            "action": action,
+            "detail": _p30_noise_clean(detail),
+            "result": result,
+            "timestamp": _p30_jst_now(),
+        })
+        # Keep last 50 events
+        if len(_p30_state["humanTimeline"]) > 50:
+            _p30_state["humanTimeline"] = _p30_state["humanTimeline"][-50:]
+
+def _p30_generate_daily_brief():
+    """Generate daily brief from current state."""
+    with _p30_lock:
+        brief = _p30_state["dailyBrief"]
+        brief["generatedAt"] = _p30_jst_now()
+        # Yesterday continue: pending approval items
+        brief["yesterdayContinue"] = [
+            f"{a['title']} が承認待ちです"
+            for a in _p30_state["approvalQueue"]
+            if a.get("status") == "pending"
+        ]
+        # Warnings: failed tasks
+        brief["warnings"] = [
+            f"{t['title']} が失敗しています"
+            for t in _p30_state["todayTasks"]
+            if t.get("status") == "failed"
+        ]
+        # Recommendations
+        recs = []
+        if _p30_state["approvalQueue"]:
+            recs.append("承認待ちの項目を先に確認すると進みます")
+        failed = [t for t in _p30_state["todayTasks"] if t.get("status") == "failed"]
+        if failed:
+            recs.append(f"{failed[0]['title']} の確認をお勧めします")
+        if not recs:
+            recs.append("今日のタスクを追加して始めましょう")
+        brief["recommendations"] = recs
+
+# ── P30 Pydantic Models ──────────────────────────────────────
+from pydantic import BaseModel as _P30BaseModel
+from typing import Optional as _P30Optional
+
+class _P30TaskModel(_P30BaseModel):
+    title: str
+    priority: str = "MEDIUM"
+    status: str = "pending"
+    detail: _P30Optional[str] = None
+
+class _P30ApprovalModel(_P30BaseModel):
+    title: str
+    risk: str = "LOW"
+    changedFiles: list = []
+    whatChanges: str = ""
+    reversible: bool = True
+    detail: _P30Optional[str] = None
+
+class _P30PauseModel(_P30BaseModel):
+    action: str  # pause / resume / done-today
+    reason: _P30Optional[str] = None
+    resumeNote: _P30Optional[str] = None
+
+class _P30ApprovalActionModel(_P30BaseModel):
+    action: str  # approve / reject
+    reason: _P30Optional[str] = None
+
+class _P30NowWorkingModel(_P30BaseModel):
+    description: str
+    nextTask: _P30Optional[str] = None
+
+# ── P30 HTML Dashboard ───────────────────────────────────────
+def _p30_render_html() -> str:
+    with _p30_lock:
+        state = _p30_state
+        tasks = state["todayTasks"]
+        now_w = state["nowWorking"]
+        next_t = state["nextTask"]
+        approvals = [a for a in state["approvalQueue"] if a.get("status") == "pending"]
+        timeline = state["humanTimeline"][-10:]
+        pause = state["pauseState"]
+        brief = state["dailyBrief"]
+
+        # Status icons
+        def status_icon(s):
+            return {"pending": "🟡", "running": "🟢", "done": "✅", "failed": "🔴", "paused": "⏸️"}.get(s, "⚪")
+
+        # Today tasks HTML
+        tasks_html = ""
+        for t in tasks:
+            icon = status_icon(t.get("status", "pending"))
+            label = _p30_smart_lang(t.get("status", "pending"))
+            tasks_html += f"<div class='task-item'><span class='task-icon'>{icon}</span><span class='task-title'>{t['title']}</span><span class='task-status'>{label}</span></div>"
+        if not tasks_html:
+            tasks_html = "<div class='empty-msg'>タスクはありません</div>"
+
+        # Now working
+        now_html = f"<div class='now-text'>{now_w['description']}</div>" if now_w else "<div class='empty-msg'>作業中のタスクはありません</div>"
+        next_html = f"<div class='next-text'>{next_t}</div>" if next_t else "<div class='empty-msg'>次のタスクは未設定です</div>"
+
+        # Approval center
+        approval_html = ""
+        for a in approvals:
+            risk_color = {"HIGH": "#da3633", "MEDIUM": "#d29922", "LOW": "#3fb950"}.get(a.get("risk", "LOW"), "#8b949e")
+            files_str = ", ".join(a.get("changedFiles", [])) or "なし"
+            reversible = "✅ 戻せます" if a.get("reversible", True) else "⚠️ 戻せません"
+            approval_html += f"""
+<div class='approval-card'>
+  <div class='approval-title'>{a['title']}</div>
+  <div class='approval-meta'>
+    <span style='color:{risk_color}'>リスク: {a.get("risk","LOW")}</span> &nbsp;|&nbsp;
+    変更ファイル: {files_str} &nbsp;|&nbsp; {reversible}
+  </div>
+  <div class='approval-desc'>{a.get("whatChanges","")}</div>
+  <div class='approval-actions'>
+    <button onclick='approveItem("{a["id"]}")' class='btn-approve'>承認</button>
+    <button onclick='rejectItem("{a["id"]}")' class='btn-reject'>却下</button>
+  </div>
+</div>"""
+        if not approval_html:
+            approval_html = "<div class='empty-msg'>承認待ちはありません</div>"
+
+        # Timeline
+        tl_html = ""
+        for e in reversed(timeline):
+            result_color = "#3fb950" if e.get("result") == "OK" else "#f85149"
+            tl_html += f"<div class='tl-row'><span class='tl-time'>{e['time']}</span><span class='tl-action'>{e['action']}</span><span class='tl-detail'>{e.get('detail','')}</span><span class='tl-result' style='color:{result_color}'>{e.get('result','')}</span></div>"
+        if not tl_html:
+            tl_html = "<div class='empty-msg'>タイムラインはありません</div>"
+
+        # Pause banner
+        pause_banner = ""
+        if pause.get("active"):
+            pause_banner = f"<div class='pause-banner'>⏸️ 一時停止中: {pause.get('reason','')} — {pause.get('resumeNote','')}</div>"
+
+        # Daily brief
+        brief_html = ""
+        if brief.get("yesterdayContinue"):
+            brief_html += "<div class='brief-section'><div class='brief-label'>昨日の続き</div>"
+            for item in brief["yesterdayContinue"]:
+                brief_html += f"<div class='brief-item'>📌 {item}</div>"
+            brief_html += "</div>"
+        if brief.get("warnings"):
+            brief_html += "<div class='brief-section'><div class='brief-label'>注意</div>"
+            for w in brief["warnings"]:
+                brief_html += f"<div class='brief-item warn'>⚠️ {w}</div>"
+            brief_html += "</div>"
+        if brief.get("recommendations"):
+            brief_html += "<div class='brief-section'><div class='brief-label'>おすすめ</div>"
+            for r in brief["recommendations"]:
+                brief_html += f"<div class='brief-item rec'>💡 {r}</div>"
+            brief_html += "</div>"
+        if not brief_html:
+            brief_html = "<div class='empty-msg'>デイリーブリーフを生成してください</div>"
+
+        server_time = _p30_jst_now()
+        approval_count = len(approvals)
+
+    return f"""<!DOCTYPE html><html lang='ja'><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width,initial-scale=1,viewport-fit=cover'><title>AXIA Work OS</title><style>
+*{{box-sizing:border-box;margin:0;padding:0;}}
+body{{background:#0d1117;color:#e6edf3;font-family:'Segoe UI',sans-serif;font-size:14px;padding-bottom:env(safe-area-inset-bottom,16px);}}
+.header{{display:flex;align-items:center;justify-content:space-between;padding:14px 20px;background:#161b22;border-bottom:1px solid #30363d;position:sticky;top:0;z-index:100;}}
+.header h1{{font-size:18px;font-weight:700;color:#58a6ff;}}
+.header-meta{{font-size:11px;color:#8b949e;text-align:right;}}
+.pause-banner{{background:#6e40c9;color:#fff;padding:8px 20px;font-weight:700;text-align:center;font-size:13px;}}
+.main{{display:grid;grid-template-columns:1fr 1fr;gap:16px;padding:16px 20px;}}
+@media(max-width:700px){{.main{{grid-template-columns:1fr;padding:12px;}}}}
+.card{{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:14px;}}
+.card-title{{font-size:12px;font-weight:700;color:#8b949e;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;display:flex;align-items:center;gap:6px;}}
+.card-title .badge{{background:#21262d;border-radius:10px;padding:2px 8px;font-size:10px;color:#58a6ff;}}
+.task-item{{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #21262d;}}
+.task-item:last-child{{border-bottom:none;}}
+.task-icon{{font-size:16px;flex-shrink:0;}}
+.task-title{{flex:1;font-size:13px;}}
+.task-status{{font-size:11px;color:#8b949e;}}
+.now-text{{font-size:15px;color:#e6edf3;line-height:1.6;padding:6px 0;}}
+.next-text{{font-size:13px;color:#58a6ff;padding:6px 0;}}
+.empty-msg{{font-size:12px;color:#484f58;padding:8px 0;}}
+.approval-card{{background:#1c2128;border:1px solid #30363d;border-radius:8px;padding:12px;margin-bottom:8px;}}
+.approval-title{{font-size:14px;font-weight:700;margin-bottom:6px;}}
+.approval-meta{{font-size:11px;color:#8b949e;margin-bottom:6px;}}
+.approval-desc{{font-size:12px;color:#c9d1d9;margin-bottom:8px;}}
+.approval-actions{{display:flex;gap:8px;}}
+.btn-approve{{background:#1a7f37;color:#fff;border:none;border-radius:6px;padding:6px 14px;font-size:12px;cursor:pointer;font-weight:700;}}
+.btn-reject{{background:#da3633;color:#fff;border:none;border-radius:6px;padding:6px 14px;font-size:12px;cursor:pointer;font-weight:700;}}
+.tl-row{{display:grid;grid-template-columns:45px 1fr 1fr 40px;gap:6px;padding:5px 0;border-bottom:1px solid #21262d;font-size:12px;align-items:center;}}
+.tl-time{{color:#484f58;font-size:11px;}}
+.tl-action{{color:#d29922;font-weight:700;}}
+.tl-detail{{color:#8b949e;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}}
+.tl-result{{font-size:11px;font-weight:700;}}
+.pause-controls{{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;}}
+.btn-pause{{background:#6e40c9;color:#fff;border:none;border-radius:6px;padding:8px 14px;font-size:12px;cursor:pointer;font-weight:700;}}
+.btn-resume{{background:#1a7f37;color:#fff;border:none;border-radius:6px;padding:8px 14px;font-size:12px;cursor:pointer;font-weight:700;}}
+.btn-done-today{{background:#21262d;color:#e6edf3;border:1px solid #30363d;border-radius:6px;padding:8px 14px;font-size:12px;cursor:pointer;font-weight:700;}}
+.brief-section{{margin-bottom:10px;}}
+.brief-label{{font-size:11px;font-weight:700;color:#8b949e;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;}}
+.brief-item{{font-size:13px;padding:4px 0;color:#e6edf3;}}
+.brief-item.warn{{color:#d29922;}}
+.brief-item.rec{{color:#58a6ff;}}
+.footer{{text-align:center;padding:14px;font-size:11px;color:#484f58;border-top:1px solid #21262d;margin-top:8px;}}
+details summary{{cursor:pointer;color:#58a6ff;font-size:12px;padding:4px 0;}}
+details[open] summary{{color:#8b949e;}}
+</style>
+<script>
+async function approveItem(id){{
+  await fetch('/api/axia-work/approval/'+id,{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{action:'approve'}}) }});
+  location.reload();
+}}
+async function rejectItem(id){{
+  await fetch('/api/axia-work/approval/'+id,{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{action:'reject'}}) }});
+  location.reload();
+}}
+async function pauseWork(){{
+  await fetch('/api/axia-work/pause',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{action:'pause',reason:'今日はここまで'}}) }});
+  location.reload();
+}}
+async function resumeWork(){{
+  await fetch('/api/axia-work/pause',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{action:'resume'}}) }});
+  location.reload();
+}}
+async function doneToday(){{
+  await fetch('/api/axia-work/pause',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{action:'done-today',resumeNote:'明日続きから再開'}}) }});
+  location.reload();
+}}
+</script>
+</head><body>
+<div class='header'>
+  <h1>AXIA Work OS</h1>
+  <div class='header-meta'>
+    <div id='work-time'>{server_time}</div>
+    <div>P30 Runtime &nbsp;|&nbsp; 承認待ち: {approval_count}件</div>
+  </div>
+</div>
+{pause_banner}
+<div class='main'>
+  <div class='card'>
+    <div class='card-title'>📅 Today <span class='badge'>{len(tasks)}件</span></div>
+    {tasks_html}
+  </div>
+  <div class='card'>
+    <div class='card-title'>⚡ Now Working</div>
+    {now_html}
+    <div class='card-title' style='margin-top:12px;'>➡️ Next</div>
+    {next_html}
+  </div>
+  <div class='card'>
+    <div class='card-title'>✋ 承認センター <span class='badge'>{approval_count}</span></div>
+    {approval_html}
+  </div>
+  <div class='card'>
+    <div class='card-title'>📋 タイムライン</div>
+    {tl_html}
+  </div>
+  <div class='card'>
+    <div class='card-title'>⏸️ 一時停止</div>
+    <div class='pause-controls'>
+      <button class='btn-pause' onclick='pauseWork()'>今日はここまで</button>
+      <button class='btn-resume' onclick='resumeWork()'>再開する</button>
+      <button class='btn-done-today' onclick='doneToday()'>あとで再開</button>
+    </div>
+    <details style='margin-top:12px;'>
+      <summary>詳細ランタイム情報</summary>
+      <div style='font-size:11px;color:#484f58;padding:8px 0;'>技術的な詳細はここに折りたたまれています</div>
+    </details>
+  </div>
+  <div class='card'>
+    <div class='card-title'>🌅 デイリーブリーフ</div>
+    {brief_html}
+  </div>
+</div>
+<div class='footer'>AXIA_RUNTIME_CLASS = HUMAN_WORK_OPERATING_SYSTEM &nbsp;|&nbsp; Work Version: P30 &nbsp;|&nbsp; {server_time}</div>
+</body></html>"""
+
+
+# ── P30 Endpoints ────────────────────────────────────────────
+
+@router.get("/axia-work", response_class=HTMLResponse)
+async def axia_work_dashboard():
+    """P30: Human Work OS Dashboard."""
+    return HTMLResponse(content=_p30_render_html())
+
+
+@router.get("/axia-work/state")
+async def axia_work_state():
+    """P30: Work OS state JSON."""
+    with _p30_lock:
+        return {
+            **_p30_state,
+            "serverTime": _p30_jst_now(),
+        }
+
+
+@router.post("/axia-work/task")
+async def axia_work_add_task(body: _P30TaskModel):
+    """P30: Add a task to today's workspace."""
+    with _p30_lock:
+        task = {
+            "id": str(_uuid30.uuid4())[:8],
+            "title": body.title,
+            "priority": body.priority,
+            "status": body.status,
+            "detail": body.detail,
+            "createdAt": _p30_jst_now(),
+        }
+        _p30_state["todayTasks"].append(task)
+        _p30_add_timeline("タスク追加", body.title)
+        return {"status": "OK", "task": task, "workVersion": "P30"}
+
+
+@router.post("/axia-work/task/{task_id}/status")
+async def axia_work_update_task_status(task_id: str, body: dict):
+    """P30: Update task status."""
+    with _p30_lock:
+        for t in _p30_state["todayTasks"]:
+            if t["id"] == task_id:
+                t["status"] = body.get("status", t["status"])
+                _p30_add_timeline("タスク更新", t["title"], body.get("status", "OK"))
+                return {"status": "OK", "task": t}
+        return {"status": "NOT_FOUND", "taskId": task_id}
+
+
+@router.post("/axia-work/now")
+async def axia_work_set_now(body: _P30NowWorkingModel):
+    """P30: Set now working description."""
+    with _p30_lock:
+        _p30_state["nowWorking"] = {
+            "description": body.description,
+            "startedAt": _p30_jst_now(),
+        }
+        if body.nextTask:
+            _p30_state["nextTask"] = body.nextTask
+        _p30_add_timeline("作業開始", body.description)
+        return {"status": "OK", "nowWorking": _p30_state["nowWorking"], "workVersion": "P30"}
+
+
+@router.get("/axia-work/approval")
+async def axia_work_approval_list():
+    """P30: Approval center list."""
+    with _p30_lock:
+        pending = [a for a in _p30_state["approvalQueue"] if a.get("status") == "pending"]
+        return {
+            "status": "OK",
+            "pending": pending,
+            "count": len(pending),
+            "workVersion": "P30",
+            "serverTime": _p30_jst_now(),
+        }
+
+
+@router.post("/axia-work/approval/add")
+async def axia_work_add_approval(body: _P30ApprovalModel):
+    """P30: Add item to approval queue."""
+    with _p30_lock:
+        item = {
+            "id": str(_uuid30.uuid4())[:8],
+            "title": body.title,
+            "risk": body.risk,
+            "changedFiles": body.changedFiles,
+            "whatChanges": body.whatChanges,
+            "reversible": body.reversible,
+            "detail": body.detail,
+            "status": "pending",
+            "createdAt": _p30_jst_now(),
+        }
+        _p30_state["approvalQueue"].append(item)
+        _p30_add_timeline("承認追加", body.title)
+        return {"status": "OK", "item": item, "workVersion": "P30"}
+
+
+@router.post("/axia-work/approval/{approval_id}")
+async def axia_work_approval_action(approval_id: str, body: _P30ApprovalActionModel):
+    """P30: Approve or reject an approval item."""
+    with _p30_lock:
+        for a in _p30_state["approvalQueue"]:
+            if a["id"] == approval_id:
+                a["status"] = "approved" if body.action == "approve" else "rejected"
+                a["decidedAt"] = _p30_jst_now()
+                a["decideReason"] = body.reason
+                action_label = "承認" if body.action == "approve" else "却下"
+                _p30_add_timeline(action_label, a["title"], body.action.upper())
+                return {"status": "OK", "action": body.action, "item": a, "workVersion": "P30"}
+        return {"status": "NOT_FOUND", "approvalId": approval_id}
+
+
+@router.post("/axia-work/pause")
+async def axia_work_pause(body: _P30PauseModel):
+    """P30: Human Pause Runtime."""
+    with _p30_lock:
+        action = body.action
+        if action == "pause":
+            _p30_state["pauseState"] = {
+                "active": True,
+                "reason": body.reason or "一時停止",
+                "pausedAt": _p30_jst_now(),
+                "resumeNote": body.resumeNote,
+            }
+            _p30_add_timeline("一時停止", body.reason or "今日はここまで")
+        elif action == "resume":
+            _p30_state["pauseState"]["active"] = False
+            _p30_state["pauseState"]["resumedAt"] = _p30_jst_now()
+            _p30_add_timeline("再開", "作業を再開しました")
+        elif action == "done-today":
+            _p30_state["pauseState"] = {
+                "active": True,
+                "reason": "今日の作業完了",
+                "pausedAt": _p30_jst_now(),
+                "resumeNote": body.resumeNote or "明日続きから再開",
+            }
+            _p30_add_timeline("今日完了", "明日続きから再開")
+        return {
+            "status": "OK",
+            "action": action,
+            "pauseState": _p30_state["pauseState"],
+            "workVersion": "P30",
+        }
+
+
+@router.get("/axia-work/brief")
+async def axia_work_brief():
+    """P30: Daily Brief."""
+    _p30_generate_daily_brief()
+    with _p30_lock:
+        return {
+            "status": "OK",
+            "brief": _p30_state["dailyBrief"],
+            "workVersion": "P30",
+            "serverTime": _p30_jst_now(),
+        }
+
+
+@router.get("/axia-work/timeline")
+async def axia_work_timeline():
+    """P30: Human Timeline."""
+    with _p30_lock:
+        return {
+            "status": "OK",
+            "timeline": _p30_state["humanTimeline"],
+            "count": len(_p30_state["humanTimeline"]),
+            "workVersion": "P30",
+            "serverTime": _p30_jst_now(),
+        }
+
+
+@router.post("/axia-work/smart-lang")
+async def axia_work_smart_lang(body: dict):
+    """P30: Smart Status Language conversion."""
+    raw = body.get("text", "")
+    converted = _p30_smart_lang(raw)
+    noise_clean = _p30_noise_clean(raw)
+    return {
+        "status": "OK",
+        "raw": raw,
+        "humanReadable": converted,
+        "noiseClean": noise_clean,
+        "workVersion": "P30",
+    }
+
+
+@router.post("/axia-work/reset")
+async def axia_work_reset():
+    """P30: Reset workspace state for testing."""
+    with _p30_lock:
+        _p30_state["todayTasks"] = []
+        _p30_state["nowWorking"] = None
+        _p30_state["nextTask"] = None
+        _p30_state["approvalQueue"] = []
+        _p30_state["humanTimeline"] = []
+        _p30_state["pauseState"] = {"active": False, "reason": None, "pausedAt": None, "resumeNote": None}
+        _p30_state["dailyBrief"] = {"yesterdayContinue": [], "warnings": [], "recommendations": [], "generatedAt": None}
+        _p30_state["safeStop"] = {"active": False, "reason": None}
+    return {"status": "OK", "message": "P30 workspace reset", "workVersion": "P30"}
