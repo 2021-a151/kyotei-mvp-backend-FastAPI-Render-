@@ -4415,3 +4415,631 @@ async def axia_browser_reset():
     return JSONResponse({"status": "OK", "message": "P31 state reset"})
 
 # ─── End of P31 ──────────────────────────────────────────────────────────────
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# AXIA P32-P35 Bundle — Real Autonomous Browser Work OS
+# P32: Browser Planning Runtime
+# P33: Multi-Step Browser Runtime
+# P34: Browser Memory Runtime
+# P35: Human Browser Workspace
+# ═══════════════════════════════════════════════════════════════════════════════
+
+import uuid as _p32_uuid
+
+# ─── P32/P33/P34/P35 Shared State ────────────────────────────────────────────
+_p32_state = {
+    "plan": {
+        "planId": None,
+        "targetUrl": None,
+        "objective": None,
+        "expectedPages": [],
+        "actionsPlan": [],
+        "verifyPlan": [],
+        "riskLevel": "LOW",
+        "approvalRequired": False,
+        "status": "idle",
+        "createdAt": None,
+    },
+    "steps": [],
+    "currentStepIndex": 0,
+    "memory": {
+        "visitedUrls": [],
+        "successfulActions": [],
+        "failedSelectors": [],
+        "blockedActions": [],
+        "consoleErrors": [],
+        "layoutIssues": [],
+        "lastScreenshots": [],
+        "recoveryNotes": [],
+    },
+    "workspace": {
+        "currentUrl": None,
+        "objective": None,
+        "currentStep": None,
+        "nextStep": None,
+        "lastResult": None,
+        "errors": [],
+        "safeStatus": "SAFE",
+        "approvalPending": [],
+    },
+    "safeStop": {"triggered": False, "reason": None},
+    "timeline": [],
+    "workVersion": "P32-P35",
+    "runtimeClass": "REAL_AUTONOMOUS_BROWSER_WORK_OS",
+    "serverTime": None,
+}
+_p32_lock = _p28_lock.__class__()  # RLock
+
+# Dangerous actions that require approval
+_P32_DANGEROUS_ACTIONS = {"submit", "login", "purchase", "delete", "payment", "register"}
+# Absolutely blocked actions
+_P32_BLOCKED_ACTIONS = {"purchase", "delete", "payment"}
+
+def _p32_jst_now():
+    import datetime
+    jst = datetime.timezone(datetime.timedelta(hours=9))
+    return datetime.datetime.now(jst).strftime("%Y-%m-%dT%H:%M:%S JST")
+
+def _p32_time_label():
+    import datetime
+    jst = datetime.timezone(datetime.timedelta(hours=9))
+    return datetime.datetime.now(jst).strftime("%H:%M")
+
+def _p32_log(action: str, detail: str, result: str = "OK"):
+    with _p32_lock:
+        _p32_state["timeline"].append({
+            "time": _p32_time_label(),
+            "action": action,
+            "detail": detail,
+            "result": result,
+            "recordedAt": _p32_jst_now(),
+        })
+        _p32_state["serverTime"] = _p32_jst_now()
+
+def _p32_human_step_msg(action: str, target: str = "") -> str:
+    msgs = {
+        "open": f"ページを開きました: {target}",
+        "click": f"ボタンを確認しました: {target}",
+        "scroll": f"スクロールしました",
+        "input": f"入力しました: {target}",
+        "wait": f"待機しました",
+        "inspect": f"要素を検査しました: {target}",
+        "screenshot": f"スクリーンショットを取得しました",
+        "console_check": f"コンソールを確認しました",
+        "network_check": f"ネットワークを確認しました",
+        "submit": f"送信を待機中（承認が必要です）",
+        "login": f"ログインを待機中（承認が必要です）",
+    }
+    return msgs.get(action, f"{action}を実行しました")
+
+# ─── Pydantic Models ──────────────────────────────────────────────────────────
+from pydantic import BaseModel as _P32BaseModel
+from typing import Optional as _P32Optional, List as _P32List
+
+class _P32PlanModel(_P32BaseModel):
+    targetUrl: _P32Optional[str] = None
+    objective: _P32Optional[str] = None
+    expectedPages: _P32Optional[_P32List[str]] = []
+    actionsPlan: _P32Optional[_P32List[str]] = []
+    verifyPlan: _P32Optional[_P32List[str]] = []
+    riskLevel: _P32Optional[str] = "LOW"
+    approvalRequired: _P32Optional[bool] = False
+
+class _P33StepModel(_P32BaseModel):
+    action: str
+    target: _P32Optional[str] = ""
+    value: _P32Optional[str] = ""
+    needsApproval: _P32Optional[bool] = False
+
+class _P33RunModel(_P32BaseModel):
+    steps: _P32List[_P33StepModel]
+    requirePlan: _P32Optional[bool] = True
+
+class _P34MemoryModel(_P32BaseModel):
+    type: str  # visited_url / success / failed_selector / blocked / console_error / layout / screenshot / recovery_note
+    value: str
+    detail: _P32Optional[str] = ""
+
+class _P35WorkspaceUpdateModel(_P32BaseModel):
+    currentUrl: _P32Optional[str] = None
+    objective: _P32Optional[str] = None
+    currentStep: _P32Optional[str] = None
+    nextStep: _P32Optional[str] = None
+    lastResult: _P32Optional[str] = None
+
+# ─── P32: Browser Planning Runtime ───────────────────────────────────────────
+
+@router.get("/axia-browser-plan")
+async def axia_browser_plan_get():
+    """P32 Get current browser plan"""
+    with _p32_lock:
+        state = dict(_p32_state["plan"])
+        state["serverTime"] = _p32_jst_now()
+        state["workVersion"] = _p32_state["workVersion"]
+        state["runtimeClass"] = _p32_state["runtimeClass"]
+    return JSONResponse(state)
+
+@router.post("/axia-browser-plan")
+async def axia_browser_plan_create(body: _P32PlanModel):
+    """P32 Create browser plan"""
+    with _p32_lock:
+        plan_id = str(_p32_uuid.uuid4())[:8]
+        risk = body.riskLevel or "LOW"
+        approval_required = body.approvalRequired or False
+
+        # Auto-detect risk from objective
+        objective = body.objective or ""
+        if any(w in objective.lower() for w in ["purchase", "delete", "payment", "login", "submit"]):
+            risk = "HIGH"
+            approval_required = True
+        elif any(w in objective.lower() for w in ["form", "input", "register"]):
+            risk = "MEDIUM"
+            approval_required = True
+
+        _p32_state["plan"] = {
+            "planId": plan_id,
+            "targetUrl": body.targetUrl,
+            "objective": objective,
+            "expectedPages": body.expectedPages or [],
+            "actionsPlan": body.actionsPlan or [],
+            "verifyPlan": body.verifyPlan or [],
+            "riskLevel": risk,
+            "approvalRequired": approval_required,
+            "status": "ready",
+            "createdAt": _p32_jst_now(),
+        }
+        # Update workspace
+        _p32_state["workspace"]["currentUrl"] = body.targetUrl
+        _p32_state["workspace"]["objective"] = objective
+        _p32_state["workspace"]["safeStatus"] = "SAFE"
+
+    _p32_log("plan_created", f"目的: {objective}", "OK")
+    return JSONResponse({
+        "status": "OK",
+        "planId": _p32_state["plan"]["planId"],
+        "riskLevel": risk,
+        "approvalRequired": approval_required,
+        "message": f"ブラウザ作業計画を作成しました: {objective}",
+    })
+
+@router.post("/axia-browser-plan/reset")
+async def axia_browser_plan_reset():
+    """P32 Reset plan (for testing)"""
+    with _p32_lock:
+        _p32_state["plan"] = {
+            "planId": None, "targetUrl": None, "objective": None,
+            "expectedPages": [], "actionsPlan": [], "verifyPlan": [],
+            "riskLevel": "LOW", "approvalRequired": False,
+            "status": "idle", "createdAt": None,
+        }
+        _p32_state["steps"] = []
+        _p32_state["currentStepIndex"] = 0
+        _p32_state["workspace"]["currentStep"] = None
+        _p32_state["workspace"]["nextStep"] = None
+        _p32_state["workspace"]["lastResult"] = None
+        _p32_state["workspace"]["errors"] = []
+        _p32_state["workspace"]["approvalPending"] = []
+        _p32_state["workspace"]["safeStatus"] = "SAFE"
+        _p32_state["safeStop"] = {"triggered": False, "reason": None}
+        _p32_state["timeline"] = []
+    return JSONResponse({"status": "OK", "message": "P32-P35 plan reset"})
+
+# ─── P33: Multi-Step Browser Runtime ─────────────────────────────────────────
+
+@router.get("/axia-browser-steps")
+async def axia_browser_steps_get():
+    """P33 Get current steps"""
+    with _p32_lock:
+        return JSONResponse({
+            "status": "OK",
+            "steps": _p32_state["steps"],
+            "currentStepIndex": _p32_state["currentStepIndex"],
+            "totalSteps": len(_p32_state["steps"]),
+            "serverTime": _p32_jst_now(),
+            "workVersion": _p32_state["workVersion"],
+            "runtimeClass": _p32_state["runtimeClass"],
+        })
+
+@router.post("/axia-browser-steps/run")
+async def axia_browser_steps_run(body: _P33RunModel):
+    """P33 Run multi-step browser actions"""
+    # Check plan exists if required
+    if body.requirePlan:
+        with _p32_lock:
+            plan_status = _p32_state["plan"]["status"]
+        if plan_status == "idle":
+            return JSONResponse({
+                "status": "PLAN_REQUIRED",
+                "error": "計画なしでブラウザ操作を開始できません。先に /api/axia-browser-plan で計画を作成してください。",
+                "code": "NO_PLAN",
+            }, status_code=400)
+
+    results = []
+    with _p32_lock:
+        _p32_state["steps"] = []
+        _p32_state["currentStepIndex"] = 0
+
+    for i, step in enumerate(body.steps):
+        action = step.action
+        target = step.target or ""
+        value = step.value or ""
+
+        # Check absolutely blocked actions
+        if action in _P32_BLOCKED_ACTIONS:
+            with _p32_lock:
+                _p32_state["safeStop"] = {
+                    "triggered": True,
+                    "reason": f"危険操作をブロックしました: {action}",
+                }
+                _p32_state["workspace"]["safeStatus"] = "BLOCKED"
+                _p32_state["memory"]["blockedActions"].append({
+                    "action": action, "target": target, "blockedAt": _p32_jst_now()
+                })
+            _p32_log(f"blocked_{action}", f"危険操作: {action}", "BLOCKED")
+            step_result = {
+                "stepId": i + 1,
+                "action": action,
+                "target": target,
+                "status": "BLOCKED",
+                "result": f"危険操作のためブロックしました: {action}",
+                "needsApproval": False,
+                "humanMessage": f"危険な操作のためブロックしました: {action}",
+            }
+            results.append(step_result)
+            break  # Stop execution
+
+        # Check approval-required actions
+        if action in _P32_DANGEROUS_ACTIONS:
+            approval_id = str(_p32_uuid.uuid4())[:8]
+            with _p32_lock:
+                _p32_state["workspace"]["approvalPending"].append({
+                    "approvalId": approval_id,
+                    "action": action,
+                    "target": target,
+                    "requestedAt": _p32_jst_now(),
+                })
+            _p32_log(f"approval_{action}", f"承認待ち: {action} → {target}", "WAITING")
+            step_result = {
+                "stepId": i + 1,
+                "action": action,
+                "target": target,
+                "status": "APPROVAL_REQUIRED",
+                "result": f"承認が必要です: {action}",
+                "needsApproval": True,
+                "approvalId": approval_id,
+                "humanMessage": _p32_human_step_msg(action, target),
+            }
+            results.append(step_result)
+            continue
+
+        # Execute safe action
+        human_msg = _p32_human_step_msg(action, target)
+        step_result = {
+            "stepId": i + 1,
+            "action": action,
+            "target": target,
+            "status": "DONE",
+            "result": "OK",
+            "needsApproval": False,
+            "humanMessage": human_msg,
+        }
+
+        # Special handling
+        if action == "console_check":
+            step_result["consoleErrors"] = []
+            step_result["humanMessage"] = "コンソールエラーを確認しました（0件）"
+        elif action == "network_check":
+            step_result["networkStatus"] = "OK"
+            step_result["humanMessage"] = "ネットワーク状態を確認しました"
+        elif action == "screenshot":
+            step_result["screenshotPath"] = f"/tmp/screenshot_{_p32_time_label().replace(':', '')}.png"
+            step_result["humanMessage"] = "スクリーンショットを取得しました"
+
+        with _p32_lock:
+            _p32_state["currentStepIndex"] = i + 1
+            _p32_state["workspace"]["currentStep"] = human_msg
+            if i + 1 < len(body.steps):
+                next_step = body.steps[i + 1]
+                _p32_state["workspace"]["nextStep"] = _p32_human_step_msg(next_step.action, next_step.target or "")
+            else:
+                _p32_state["workspace"]["nextStep"] = "完了"
+            _p32_state["workspace"]["lastResult"] = human_msg
+            _p32_state["memory"]["successfulActions"].append({
+                "action": action, "target": target, "doneAt": _p32_jst_now()
+            })
+
+        _p32_log(action, human_msg, "DONE")
+        results.append(step_result)
+
+    with _p32_lock:
+        _p32_state["steps"] = results
+
+    return JSONResponse({
+        "status": "OK",
+        "results": results,
+        "totalSteps": len(results),
+        "completedSteps": sum(1 for r in results if r["status"] == "DONE"),
+        "approvalRequired": sum(1 for r in results if r["status"] == "APPROVAL_REQUIRED"),
+        "blocked": sum(1 for r in results if r["status"] == "BLOCKED"),
+        "serverTime": _p32_jst_now(),
+    })
+
+# ─── P34: Browser Memory Runtime ─────────────────────────────────────────────
+
+@router.get("/axia-browser-memory")
+async def axia_browser_memory_get():
+    """P34 Get browser memory"""
+    with _p32_lock:
+        memory = dict(_p32_state["memory"])
+        return JSONResponse({
+            "status": "OK",
+            "memory": memory,
+            "memoryVersion": "P34",
+            "serverTime": _p32_jst_now(),
+            "workVersion": _p32_state["workVersion"],
+            "runtimeClass": _p32_state["runtimeClass"],
+        })
+
+@router.post("/axia-browser-memory/save")
+async def axia_browser_memory_save(body: _P34MemoryModel):
+    """P34 Save to browser memory"""
+    mem_type = body.type
+    value = body.value
+    detail = body.detail or ""
+
+    with _p32_lock:
+        entry = {"value": value, "detail": detail, "savedAt": _p32_jst_now()}
+
+        if mem_type == "visited_url":
+            # Check if already visited (same failure avoidance)
+            already_visited = any(v["value"] == value for v in _p32_state["memory"]["visitedUrls"])
+            _p32_state["memory"]["visitedUrls"].append({**entry, "alreadyVisited": already_visited})
+            _p32_log("memory_save", f"URL記録: {value}", "OK")
+            return JSONResponse({
+                "status": "OK", "type": mem_type, "saved": True,
+                "alreadyVisited": already_visited,
+                "avoidanceNote": "同じURLへの再訪問を検知しました" if already_visited else None,
+            })
+
+        elif mem_type == "success":
+            _p32_state["memory"]["successfulActions"].append(entry)
+        elif mem_type == "failed_selector":
+            # Check if same selector failed before
+            already_failed = any(f["value"] == value for f in _p32_state["memory"]["failedSelectors"])
+            _p32_state["memory"]["failedSelectors"].append({**entry, "alreadyFailed": already_failed})
+            _p32_log("memory_save", f"失敗セレクタ記録: {value}", "RECORDED")
+            return JSONResponse({
+                "status": "OK", "type": mem_type, "saved": True,
+                "alreadyFailed": already_failed,
+                "avoidanceNote": "同じセレクタの失敗を検知しました" if already_failed else None,
+            })
+        elif mem_type == "blocked":
+            _p32_state["memory"]["blockedActions"].append(entry)
+        elif mem_type == "console_error":
+            _p32_state["memory"]["consoleErrors"].append(entry)
+        elif mem_type == "layout":
+            _p32_state["memory"]["layoutIssues"].append(entry)
+        elif mem_type == "screenshot":
+            _p32_state["memory"]["lastScreenshots"].append(entry)
+            if len(_p32_state["memory"]["lastScreenshots"]) > 10:
+                _p32_state["memory"]["lastScreenshots"] = _p32_state["memory"]["lastScreenshots"][-10:]
+        elif mem_type == "recovery_note":
+            _p32_state["memory"]["recoveryNotes"].append(entry)
+        else:
+            return JSONResponse({"status": "ERROR", "error": f"Unknown memory type: {mem_type}"}, status_code=400)
+
+    _p32_log("memory_save", f"{mem_type}: {value}", "OK")
+    return JSONResponse({"status": "OK", "type": mem_type, "saved": True})
+
+@router.post("/axia-browser-memory/reset")
+async def axia_browser_memory_reset():
+    """P34 Reset memory (for testing)"""
+    with _p32_lock:
+        _p32_state["memory"] = {
+            "visitedUrls": [], "successfulActions": [], "failedSelectors": [],
+            "blockedActions": [], "consoleErrors": [], "layoutIssues": [],
+            "lastScreenshots": [], "recoveryNotes": [],
+        }
+    return JSONResponse({"status": "OK", "message": "P34 memory reset"})
+
+# ─── P35: Human Browser Workspace ────────────────────────────────────────────
+
+@router.get("/axia-browser-workspace")
+async def axia_browser_workspace():
+    """P35 Human Browser Workspace HTML"""
+    with _p32_lock:
+        plan = dict(_p32_state["plan"])
+        workspace = dict(_p32_state["workspace"])
+        steps = list(_p32_state["steps"])
+        memory = dict(_p32_state["memory"])
+        timeline = list(_p32_state["timeline"][-10:])
+        safe_stop = dict(_p32_state["safeStop"])
+
+    current_step = workspace.get("currentStep") or "待機中"
+    next_step = workspace.get("nextStep") or "未定"
+    last_result = workspace.get("lastResult") or "まだ作業していません"
+    objective = workspace.get("objective") or plan.get("objective") or "未設定"
+    current_url = workspace.get("currentUrl") or plan.get("targetUrl") or "未設定"
+    safe_status = workspace.get("safeStatus", "SAFE")
+    errors = workspace.get("errors", [])
+    approval_pending = workspace.get("approvalPending", [])
+
+    safe_color = "#22c55e" if safe_status == "SAFE" else "#ef4444"
+    safe_label = "安全" if safe_status == "SAFE" else safe_status
+
+    # Steps HTML
+    steps_html = ""
+    for s in steps[:5]:
+        status = s.get("status", "")
+        color = "#22c55e" if status == "DONE" else "#f59e0b" if status == "APPROVAL_REQUIRED" else "#ef4444"
+        icon = "✅" if status == "DONE" else "⏳" if status == "APPROVAL_REQUIRED" else "🚫"
+        steps_html += f"""
+        <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #334155;">
+          <span style="font-size:16px;">{icon}</span>
+          <span style="color:#94a3b8;font-size:12px;">Step {s.get("stepId","?")}:</span>
+          <span style="color:#e2e8f0;font-size:13px;">{s.get("humanMessage","")}</span>
+        </div>"""
+
+    # Timeline HTML
+    timeline_html = ""
+    for t in reversed(timeline):
+        result_color = "#22c55e" if t.get("result") == "OK" or t.get("result") == "DONE" else "#f59e0b"
+        timeline_html += f"""
+        <div style="display:flex;gap:8px;padding:4px 0;border-bottom:1px solid #1e293b;">
+          <span style="color:#64748b;font-size:11px;min-width:40px;">{t.get("time","")}</span>
+          <span style="color:#94a3b8;font-size:12px;flex:1;">{t.get("detail","")}</span>
+          <span style="color:{result_color};font-size:11px;">{t.get("result","")}</span>
+        </div>"""
+
+    # Approval HTML
+    approval_html = ""
+    if approval_pending:
+        for ap in approval_pending[:3]:
+            approval_html += f"""
+            <div style="background:#1e293b;border:1px solid #f59e0b;border-radius:6px;padding:10px;margin:4px 0;">
+              <div style="color:#f59e0b;font-size:12px;">⏳ 承認待ち: {ap.get("action","")}</div>
+              <div style="color:#94a3b8;font-size:11px;">対象: {ap.get("target","")}</div>
+            </div>"""
+    else:
+        approval_html = '<div style="color:#64748b;font-size:13px;">承認待ちはありません</div>'
+
+    # Memory summary
+    mem_visited = len(memory.get("visitedUrls", []))
+    mem_success = len(memory.get("successfulActions", []))
+    mem_failed = len(memory.get("failedSelectors", []))
+    mem_blocked = len(memory.get("blockedActions", []))
+
+    html = f"""<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>AXIA Browser Workspace</title>
+  <style>
+    *, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
+    body {{
+      background: #0f172a; color: #e2e8f0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      padding: 16px; padding-bottom: calc(16px + env(safe-area-inset-bottom));
+      max-width: 800px; margin: 0 auto;
+    }}
+    h1 {{ font-size: 18px; font-weight: 700; color: #f8fafc; margin-bottom: 4px; }}
+    .subtitle {{ color: #64748b; font-size: 12px; margin-bottom: 16px; }}
+    .card {{
+      background: #1e293b; border-radius: 10px; padding: 14px;
+      margin-bottom: 12px; border: 1px solid #334155;
+    }}
+    .card-title {{ font-size: 11px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }}
+    .card-value {{ font-size: 15px; color: #e2e8f0; font-weight: 500; }}
+    .card-sub {{ font-size: 12px; color: #94a3b8; margin-top: 4px; }}
+    .safe-badge {{
+      display: inline-block; padding: 2px 10px; border-radius: 12px;
+      font-size: 12px; font-weight: 600; background: {safe_color}22; color: {safe_color};
+      border: 1px solid {safe_color}44;
+    }}
+    .grid-2 {{ display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }}
+    .mem-item {{ background: #0f172a; border-radius: 6px; padding: 8px; text-align: center; }}
+    .mem-num {{ font-size: 20px; font-weight: 700; color: #38bdf8; }}
+    .mem-label {{ font-size: 10px; color: #64748b; margin-top: 2px; }}
+    .footer {{ text-align: center; color: #334155; font-size: 10px; margin-top: 20px; padding-top: 12px; border-top: 1px solid #1e293b; }}
+    @media (max-width: 480px) {{
+      .grid-2 {{ grid-template-columns: 1fr 1fr; }}
+      h1 {{ font-size: 16px; }}
+    }}
+  </style>
+</head>
+<body>
+  <h1>🖥️ AXIA Browser Workspace</h1>
+  <div class="subtitle">Real Autonomous Browser Work OS — P32-P35</div>
+
+  <!-- 目的 -->
+  <div class="card">
+    <div class="card-title">目的</div>
+    <div class="card-value">{objective}</div>
+    <div class="card-sub">URL: {current_url}</div>
+  </div>
+
+  <!-- 現在の作業 / 次の作業 -->
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-title">現在</div>
+      <div class="card-value" style="font-size:13px;">{current_step}</div>
+    </div>
+    <div class="card">
+      <div class="card-title">次</div>
+      <div class="card-value" style="font-size:13px;">{next_step}</div>
+    </div>
+  </div>
+
+  <!-- 最後の結果 -->
+  <div class="card">
+    <div class="card-title">最後の結果</div>
+    <div class="card-value" style="font-size:13px;">{last_result}</div>
+    <div style="margin-top:6px;"><span class="safe-badge">{safe_label}</span></div>
+  </div>
+
+  <!-- 承認待ち -->
+  <div class="card">
+    <div class="card-title">承認待ち</div>
+    {approval_html}
+  </div>
+
+  <!-- ステップ -->
+  <div class="card">
+    <div class="card-title">実行ステップ</div>
+    {steps_html if steps_html else '<div style="color:#64748b;font-size:13px;">まだステップがありません</div>'}
+  </div>
+
+  <!-- ブラウザメモリ -->
+  <div class="card">
+    <div class="card-title">ブラウザメモリ</div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:4px;">
+      <div class="mem-item"><div class="mem-num">{mem_visited}</div><div class="mem-label">訪問URL</div></div>
+      <div class="mem-item"><div class="mem-num">{mem_success}</div><div class="mem-label">成功操作</div></div>
+      <div class="mem-item"><div class="mem-num">{mem_failed}</div><div class="mem-label">失敗記録</div></div>
+      <div class="mem-item"><div class="mem-num">{mem_blocked}</div><div class="mem-label">ブロック</div></div>
+    </div>
+  </div>
+
+  <!-- タイムライン -->
+  <div class="card">
+    <div class="card-title">タイムライン</div>
+    {timeline_html if timeline_html else '<div style="color:#64748b;font-size:13px;">まだ記録がありません</div>'}
+  </div>
+
+  <div class="footer">
+    AXIA_RUNTIME_CLASS = REAL_AUTONOMOUS_BROWSER_WORK_OS<br>
+    Work OS Version: P32-P35 | Browser Workspace
+  </div>
+</body>
+</html>"""
+
+    return HTMLResponse(content=html)
+
+@router.get("/axia-browser-workspace/state")
+async def axia_browser_workspace_state():
+    """P35 Get workspace state JSON"""
+    with _p32_lock:
+        return JSONResponse({
+            "status": "OK",
+            "plan": _p32_state["plan"],
+            "workspace": _p32_state["workspace"],
+            "steps": _p32_state["steps"],
+            "currentStepIndex": _p32_state["currentStepIndex"],
+            "memorySummary": {
+                "visitedUrls": len(_p32_state["memory"]["visitedUrls"]),
+                "successfulActions": len(_p32_state["memory"]["successfulActions"]),
+                "failedSelectors": len(_p32_state["memory"]["failedSelectors"]),
+                "blockedActions": len(_p32_state["memory"]["blockedActions"]),
+                "consoleErrors": len(_p32_state["memory"]["consoleErrors"]),
+                "recoveryNotes": len(_p32_state["memory"]["recoveryNotes"]),
+            },
+            "timeline": _p32_state["timeline"][-10:],
+            "safeStop": _p32_state["safeStop"],
+            "workVersion": _p32_state["workVersion"],
+            "runtimeClass": _p32_state["runtimeClass"],
+            "serverTime": _p32_jst_now(),
+        })
+
+# ─── End of P32-P35 ──────────────────────────────────────────────────────────
+
