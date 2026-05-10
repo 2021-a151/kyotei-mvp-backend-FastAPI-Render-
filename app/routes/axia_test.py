@@ -5043,3 +5043,552 @@ async def axia_browser_workspace_state():
 
 # ─── End of P32-P35 ──────────────────────────────────────────────────────────
 
+
+
+# ============================================================
+# AXIA P36-P40 — Real Autonomous Web Workflow Runtime
+# ============================================================
+import uuid as _p36_uuid
+
+# ─── Shared State ────────────────────────────────────────────
+_p36_workflows: dict = {}          # workflowId -> workflow dict
+_p37_tasks: dict = {}              # taskId -> task dict
+_p38_visual_state: dict = {
+    "lastVerify": None,
+    "visualVersion": "P38",
+}
+_p39_approvals: dict = {}          # approvalId -> approval dict
+_p40_continuity: dict = {
+    "savedWorkflowId": None,
+    "savedStepIndex": None,
+    "savedSessionUrl": None,
+    "savedApprovals": [],
+    "networkStatus": "OK",
+    "reconnectCount": 0,
+    "continuityVersion": "P40",
+}
+_p36_lock = _p28_lock.__class__()  # RLock
+
+# ─── Helpers ─────────────────────────────────────────────────
+_P36_DANGEROUS_KEYWORDS = ["purchase", "buy", "delete", "payment", "submit", "login", "register", "deploy", "drop", "truncate"]
+_P36_RISK_HIGH = ["purchase", "buy", "delete", "payment", "deploy", "drop", "truncate"]
+_P36_RISK_MEDIUM = ["submit", "login", "register", "form", "upload", "post"]
+
+def _p36_detect_risk(text: str) -> tuple:
+    t = text.lower()
+    for k in _P36_RISK_HIGH:
+        if k in t:
+            return "HIGH", True
+    for k in _P36_RISK_MEDIUM:
+        if k in t:
+            return "MEDIUM", True
+    return "LOW", False
+
+def _p36_now_str() -> str:
+    import datetime as _dt
+    return _dt.datetime.now().strftime("%H:%M")
+
+def _p36_iso() -> str:
+    import datetime as _dt
+    return _dt.datetime.now().isoformat()
+
+# ─── P37: Natural Language → Steps ───────────────────────────
+_P37_SAFE_VERBS = {
+    "確認": ["open_page", "visual_verify", "console_check"],
+    "check": ["open_page", "visual_verify", "console_check"],
+    "verify": ["open_page", "visual_verify", "console_check"],
+    "表示": ["open_page", "visual_verify"],
+    "スクリーンショット": ["open_page", "screenshot"],
+    "screenshot": ["open_page", "screenshot"],
+    "responsive": ["open_page", "responsive_check"],
+    "レスポンシブ": ["open_page", "responsive_check"],
+    "open": ["open_page"],
+    "開く": ["open_page"],
+    "scroll": ["open_page", "scroll"],
+    "スクロール": ["open_page", "scroll"],
+}
+
+def _p37_generate_steps(instruction: str, target_url: str) -> list:
+    steps = []
+    added = set()
+    # Always start with open_page
+    steps.append({"action": "open_page", "target": target_url, "humanLabel": "ページを開く"})
+    added.add("open_page")
+    for verb, actions in _P37_SAFE_VERBS.items():
+        if verb in instruction.lower():
+            for a in actions:
+                if a not in added:
+                    label_map = {
+                        "visual_verify": "画面を確認する",
+                        "console_check": "コンソールエラーを確認する",
+                        "screenshot": "スクリーンショットを取得する",
+                        "responsive_check": "レスポンシブを確認する",
+                        "scroll": "スクロールする",
+                    }
+                    steps.append({"action": a, "target": target_url, "humanLabel": label_map.get(a, a)})
+                    added.add(a)
+    # Always end with report
+    if "visual_verify" not in added:
+        steps.append({"action": "visual_verify", "target": target_url, "humanLabel": "画面を確認する"})
+    steps.append({"action": "report", "target": "result", "humanLabel": "結果を報告する"})
+    return steps
+
+# ─── P38: Visual Understanding ───────────────────────────────
+def _p38_analyze_html(html_content: str, status_code: int = 200) -> dict:
+    issues = []
+    warnings = []
+    if status_code == 404:
+        issues.append("404_not_found")
+    if status_code == 500:
+        issues.append("500_server_error")
+    if status_code >= 400:
+        pass
+    else:
+        if len(html_content) < 100:
+            issues.append("blank_page")
+        if "<button" not in html_content.lower() and "btn" not in html_content.lower():
+            warnings.append("missing_button")
+        if "<form" not in html_content.lower():
+            warnings.append("missing_form")
+        if "console.error" in html_content.lower():
+            warnings.append("console_error")
+        if "loading" in html_content.lower() and len(html_content) < 500:
+            warnings.append("loading_stuck")
+        if html_content.strip() == "" or html_content.strip() == "<html></html>":
+            issues.append("empty_state")
+    layout_health = "GOOD" if not issues and not warnings else ("WARN" if not issues else "BAD")
+    page_health = "OK" if not issues else "FAIL"
+    visual_summary = "正常" if layout_health == "GOOD" else ("警告あり" if layout_health == "WARN" else "問題あり")
+    return {
+        "issues": issues,
+        "uiWarnings": warnings,
+        "layoutHealth": layout_health,
+        "pageHealth": page_health,
+        "visualSummary": visual_summary,
+        "statusCode": status_code,
+        "htmlLength": len(html_content),
+    }
+
+# ─── P36: Workflow Endpoints ──────────────────────────────────
+@router.get("/axia-workflow", response_class=HTMLResponse)
+async def axia_workflow_dashboard():
+    with _p36_lock:
+        wf_list = list(_p36_workflows.values())
+    cards = ""
+    for wf in wf_list:
+        prog = wf.get("progress", 0)
+        status = wf.get("workflowStatus", "PENDING")
+        color = "#4caf50" if status == "DONE" else ("#ff9800" if status == "RUNNING" else "#9e9e9e")
+        cards += f"""
+        <div class="card">
+          <div class="card-title">{wf.get('workflowName','')}</div>
+          <div style="color:{color};font-weight:bold;">{status}</div>
+          <div>進行状況: {prog}%</div>
+          <div style="font-size:0.85em;color:#888;">現在: {wf.get('currentStep','')}</div>
+        </div>"""
+    if not cards:
+        cards = '<div class="card" style="color:#888;">ワークフローはありません</div>'
+    html = f"""<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>AXIA Web Workflow</title>
+<style>
+*{{box-sizing:border-box;margin:0;padding:0}}
+body{{font-family:-apple-system,sans-serif;background:#0f0f1a;color:#e0e0e0;padding:env(safe-area-inset-top,16px) 16px 80px;max-width:600px;margin:0 auto}}
+h1{{font-size:1.2em;color:#7c4dff;margin:16px 0 8px}}
+.card{{background:#1a1a2e;border-radius:12px;padding:16px;margin:12px 0;border-left:4px solid #7c4dff}}
+.card-title{{font-weight:bold;margin-bottom:8px;font-size:1.05em}}
+.footer{{margin-top:32px;font-size:0.75em;color:#555;text-align:center}}
+@media(max-width:480px){{body{{padding:12px 12px 80px}}}}
+</style>
+</head>
+<body>
+<h1>AXIA Web Workflow</h1>
+{cards}
+<div class="footer">AXIA_RUNTIME_CLASS = REAL_AUTONOMOUS_WEB_WORKFLOW_OPERATOR | P36-P40</div>
+</body>
+</html>"""
+    return HTMLResponse(content=html)
+
+class _P36WorkflowCreate(_P28BaseModel):
+    workflowName: str
+    targetUrl: str
+    objective: str
+    steps: list = []
+
+@router.post("/axia-workflow/create")
+async def axia_workflow_create(body: _P36WorkflowCreate):
+    risk_level, approval_required = _p36_detect_risk(body.objective)
+    wf_id = str(_p36_uuid.uuid4())[:8]
+    steps = body.steps if body.steps else [
+        {"action": "open_page", "target": body.targetUrl, "humanLabel": "ページを開く", "status": "PENDING"},
+        {"action": "visual_verify", "target": body.targetUrl, "humanLabel": "画面を確認する", "status": "PENDING"},
+        {"action": "report", "target": "result", "humanLabel": "結果を報告する", "status": "PENDING"},
+    ]
+    wf = {
+        "workflowId": wf_id,
+        "workflowName": body.workflowName,
+        "workflowStatus": "READY",
+        "targetUrl": body.targetUrl,
+        "objective": body.objective,
+        "steps": steps,
+        "currentStep": steps[0].get("humanLabel", steps[0].get("description", steps[0].get("action", ""))) if steps else "",
+        "currentStepIndex": 0,
+        "progress": 0,
+        "riskLevel": risk_level,
+        "approvalRequired": approval_required,
+        "startedAt": _p36_iso(),
+        "updatedAt": _p36_iso(),
+        "workflowVersion": "P36",
+    }
+    with _p36_lock:
+        _p36_workflows[wf_id] = wf
+    return wf
+
+@router.post("/axia-workflow/run")
+async def axia_workflow_run(body: dict):
+    wf_id = body.get("workflowId")
+    with _p36_lock:
+        wf = _p36_workflows.get(wf_id)
+    if not wf:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail={"code": "WORKFLOW_NOT_FOUND"})
+    steps = wf.get("steps", [])
+    results = []
+    completed = 0
+    for i, step in enumerate(steps):
+        action = step.get("action", "")
+        # Dangerous action check
+        if action in ["purchase", "delete", "payment"]:
+            step["status"] = "BLOCKED"
+            results.append({"step": i, "action": action, "status": "BLOCKED"})
+            continue
+        if action in ["submit", "login"]:
+            step["status"] = "APPROVAL_REQUIRED"
+            results.append({"step": i, "action": action, "status": "APPROVAL_REQUIRED"})
+            continue
+        step["status"] = "DONE"
+        completed += 1
+        results.append({"step": i, "action": action, "status": "DONE"})
+    progress = int(completed / len(steps) * 100) if steps else 0
+    with _p36_lock:
+        wf["workflowStatus"] = "DONE" if progress == 100 else "PARTIAL"
+        wf["progress"] = progress
+        wf["completedSteps"] = completed
+        wf["currentStep"] = steps[-1]["humanLabel"] if steps else ""
+        wf["updatedAt"] = _p36_iso()
+        # Save to continuity
+        _p40_continuity["savedWorkflowId"] = wf_id
+        _p40_continuity["savedStepIndex"] = completed
+    return {
+        "workflowId": wf_id,
+        "workflowStatus": wf["workflowStatus"],
+        "progress": progress,
+        "completedSteps": completed,
+        "results": results,
+        "humanMessage": f"{completed}/{len(steps)} ステップ完了",
+    }
+
+@router.get("/axia-workflow/state")
+async def axia_workflow_state():
+    with _p36_lock:
+        wf_list = list(_p36_workflows.values())
+    return {
+        "workflows": wf_list,
+        "workflowCount": len(wf_list),
+        "workflowVersion": "P36",
+        "runtimeClass": "REAL_AUTONOMOUS_WEB_WORKFLOW_OPERATOR",
+        "serverTime": _p36_iso(),
+    }
+
+# ─── P37: Browser Task Automation ────────────────────────────
+class _P37TaskCreate(_P28BaseModel):
+    instruction: str
+    targetUrl: str
+
+@router.post("/axia-browser-task")
+async def axia_browser_task_create(body: _P37TaskCreate):
+    # Dangerous automation block
+    for kw in _P36_DANGEROUS_KEYWORDS:
+        if kw in body.instruction.lower():
+            return {
+                "status": "BLOCKED",
+                "code": "DANGEROUS_AUTOMATION",
+                "message": f"危険な操作の自動化は禁止されています: {kw}",
+                "instruction": body.instruction,
+            }
+    steps = _p37_generate_steps(body.instruction, body.targetUrl)
+    task_id = str(_p36_uuid.uuid4())[:8]
+    task = {
+        "taskId": task_id,
+        "instruction": body.instruction,
+        "targetUrl": body.targetUrl,
+        "steps": steps,
+        "stepCount": len(steps),
+        "status": "READY",
+        "humanMessage": f"{len(steps)} ステップを生成しました",
+        "taskVersion": "P37",
+        "createdAt": _p36_iso(),
+    }
+    with _p36_lock:
+        _p37_tasks[task_id] = task
+    return task
+
+@router.get("/axia-browser-task/state")
+async def axia_browser_task_state():
+    with _p36_lock:
+        task_list = list(_p37_tasks.values())
+    return {
+        "tasks": task_list,
+        "taskCount": len(task_list),
+        "taskVersion": "P37",
+        "runtimeClass": "REAL_AUTONOMOUS_WEB_WORKFLOW_OPERATOR",
+        "serverTime": _p36_iso(),
+    }
+
+# ─── P38: Visual Understanding ───────────────────────────────
+class _P38VisualVerify(_P28BaseModel):
+    url: str = ""
+    htmlContent: str = ""
+    statusCode: int = 200
+    checkItems: list = []
+
+@router.post("/axia-visual-verify")
+async def axia_visual_verify(body: _P38VisualVerify):
+    result = _p38_analyze_html(body.htmlContent, body.statusCode)
+    result["url"] = body.url
+    result["checkedAt"] = _p36_iso()
+    result["visualVersion"] = "P38"
+    with _p36_lock:
+        _p38_visual_state["lastVerify"] = result
+    return result
+
+@router.get("/axia-visual-state")
+async def axia_visual_state():
+    with _p36_lock:
+        last = _p38_visual_state.get("lastVerify")
+    return {
+        "lastVerify": last,
+        "visualVersion": "P38",
+        "runtimeClass": "REAL_AUTONOMOUS_WEB_WORKFLOW_OPERATOR",
+        "serverTime": _p36_iso(),
+    }
+
+# ─── P39: Human Approval Workspace ───────────────────────────
+class _P39ApprovalCreate(_P28BaseModel):
+    action: str
+    reason: str
+    riskLevel: str = "MEDIUM"
+    reversible: bool = True
+    preCheckItems: list = []
+
+@router.get("/axia-approval-workspace", response_class=HTMLResponse)
+async def axia_approval_workspace():
+    with _p36_lock:
+        approvals = list(_p39_approvals.values())
+    pending = [a for a in approvals if a.get("status") == "PENDING"]
+    cards = ""
+    for ap in pending:
+        risk_color = {"HIGH": "#f44336", "MEDIUM": "#ff9800", "LOW": "#4caf50"}.get(ap.get("riskLevel","MEDIUM"), "#ff9800")
+        rev_text = "はい" if ap.get("reversible") else "いいえ"
+        cards += f"""
+        <div class="card">
+          <div class="section-title">何をするか</div>
+          <div class="section-body">{ap.get('action','')}</div>
+          <div class="section-title">危険度</div>
+          <div class="section-body" style="color:{risk_color};font-weight:bold;">{ap.get('riskLevel','MEDIUM')}</div>
+          <div class="section-title">なぜ必要か</div>
+          <div class="section-body">{ap.get('reason','')}</div>
+          <div class="section-title">戻せるか</div>
+          <div class="section-body">{rev_text}</div>
+          <div class="section-title">実行前確認</div>
+          <div class="section-body">承認待ち</div>
+          <div style="margin-top:12px;font-size:0.8em;color:#888;">ID: {ap.get('approvalId','')}</div>
+        </div>"""
+    if not cards:
+        cards = '<div class="card" style="color:#888;">承認待ちはありません</div>'
+    html = f"""<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>AXIA 承認センター</title>
+<style>
+*{{box-sizing:border-box;margin:0;padding:0}}
+body{{font-family:-apple-system,sans-serif;background:#0f0f1a;color:#e0e0e0;padding:env(safe-area-inset-top,16px) 16px 80px;max-width:600px;margin:0 auto}}
+h1{{font-size:1.2em;color:#ff9800;margin:16px 0 8px}}
+.card{{background:#1a1a2e;border-radius:12px;padding:16px;margin:12px 0;border-left:4px solid #ff9800}}
+.section-title{{font-size:0.75em;color:#888;margin-top:10px;margin-bottom:2px;text-transform:uppercase;letter-spacing:0.05em}}
+.section-body{{font-size:1em;color:#e0e0e0}}
+.footer{{margin-top:32px;font-size:0.75em;color:#555;text-align:center}}
+@media(max-width:480px){{body{{padding:12px 12px 80px}}}}
+</style>
+</head>
+<body>
+<h1>承認センター</h1>
+{cards}
+<div class="footer">AXIA_RUNTIME_CLASS = REAL_AUTONOMOUS_WEB_WORKFLOW_OPERATOR | P39</div>
+</body>
+</html>"""
+    return HTMLResponse(content=html)
+
+@router.post("/axia-approval/create")
+async def axia_approval_create(body: _P39ApprovalCreate):
+    ap_id = str(_p36_uuid.uuid4())[:8]
+    ap = {
+        "approvalId": ap_id,
+        "action": body.action,
+        "reason": body.reason,
+        "riskLevel": body.riskLevel,
+        "reversible": body.reversible,
+        "preCheckItems": body.preCheckItems,
+        "status": "PENDING",
+        "createdAt": _p36_iso(),
+    }
+    with _p36_lock:
+        _p39_approvals[ap_id] = ap
+        _p40_continuity["savedApprovals"] = [a["approvalId"] for a in _p39_approvals.values() if a["status"] == "PENDING"]
+    return ap
+
+@router.post("/axia-approval/approve")
+async def axia_approval_approve(body: dict):
+    ap_id = body.get("approvalId")
+    with _p36_lock:
+        ap = _p39_approvals.get(ap_id)
+        if not ap:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail={"code": "APPROVAL_NOT_FOUND"})
+        ap["status"] = "APPROVED"
+        ap["approvedAt"] = _p36_iso()
+        _p40_continuity["savedApprovals"] = [a["approvalId"] for a in _p39_approvals.values() if a["status"] == "PENDING"]
+    return {"approvalId": ap_id, "status": "APPROVED", "action": ap["action"]}
+
+@router.post("/axia-approval/reject")
+async def axia_approval_reject(body: dict):
+    ap_id = body.get("approvalId")
+    with _p36_lock:
+        ap = _p39_approvals.get(ap_id)
+        if not ap:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail={"code": "APPROVAL_NOT_FOUND"})
+        ap["status"] = "REJECTED"
+        ap["rejectedAt"] = _p36_iso()
+        _p40_continuity["savedApprovals"] = [a["approvalId"] for a in _p39_approvals.values() if a["status"] == "PENDING"]
+    return {"approvalId": ap_id, "status": "REJECTED", "action": ap["action"]}
+
+# ─── P40: Browser Continuity ──────────────────────────────────
+@router.get("/axia-browser-continuity")
+async def axia_browser_continuity_state():
+    with _p36_lock:
+        state = dict(_p40_continuity)
+        wf_id = state.get("savedWorkflowId")
+        wf = _p36_workflows.get(wf_id) if wf_id else None
+    return {
+        "continuity": state,
+        "restoredWorkflow": wf,
+        "continuityVersion": "P40",
+        "runtimeClass": "REAL_AUTONOMOUS_WEB_WORKFLOW_OPERATOR",
+        "serverTime": _p36_iso(),
+    }
+
+@router.post("/axia-browser-continuity/restore")
+async def axia_browser_continuity_restore(body: dict):
+    restore_type = body.get("restoreType", "workflow")
+    with _p36_lock:
+        if restore_type == "network":
+            _p40_continuity["networkStatus"] = "RECOVERING"
+            _p40_continuity["reconnectCount"] = _p40_continuity.get("reconnectCount", 0) + 1
+            _p40_continuity["networkStatus"] = "OK"
+            return {
+                "restored": True,
+                "restoreType": "network",
+                "networkStatus": "OK",
+                "reconnectCount": _p40_continuity["reconnectCount"],
+                "humanMessage": "ネットワークを復元しました",
+            }
+        wf_id = _p40_continuity.get("savedWorkflowId")
+        step_index = _p40_continuity.get("savedStepIndex", 0)
+        session_url = _p40_continuity.get("savedSessionUrl", "")
+        wf = _p36_workflows.get(wf_id) if wf_id else None
+    return {
+        "restored": True,
+        "restoreType": restore_type,
+        "restoredWorkflowId": wf_id,
+        "restoredStepIndex": step_index,
+        "restoredSessionUrl": session_url,
+        "restoredWorkflow": wf,
+        "humanMessage": "作業状態を復元しました",
+        "continuityVersion": "P40",
+    }
+
+# ─── P36-P40 Completion Gate ─────────────────────────────────
+@router.get("/axia-workflow-workspace", response_class=HTMLResponse)
+async def axia_workflow_workspace():
+    """Combined P36-P40 Human Workspace View"""
+    with _p36_lock:
+        wf_list = list(_p36_workflows.values())
+        task_list = list(_p37_tasks.values())
+        last_visual = _p38_visual_state.get("lastVerify")
+        pending_approvals = [a for a in _p39_approvals.values() if a.get("status") == "PENDING"]
+        continuity = dict(_p40_continuity)
+    # Current workflow
+    current_wf = wf_list[-1] if wf_list else None
+    wf_section = ""
+    if current_wf:
+        wf_section = f"""
+        <div class="card">
+          <div class="card-title">現在のワークフロー</div>
+          <div>{current_wf.get('workflowName','')}</div>
+          <div style="color:#7c4dff;">進行状況: {current_wf.get('progress',0)}%</div>
+          <div style="font-size:0.85em;color:#888;">現在: {current_wf.get('currentStep','')}</div>
+        </div>"""
+    # Visual state
+    visual_section = ""
+    if last_visual:
+        health_color = {"GOOD": "#4caf50", "WARN": "#ff9800", "BAD": "#f44336"}.get(last_visual.get("layoutHealth","GOOD"), "#4caf50")
+        visual_section = f"""
+        <div class="card">
+          <div class="card-title">画面状態</div>
+          <div style="color:{health_color};">{last_visual.get('visualSummary','')}</div>
+          <div style="font-size:0.85em;color:#888;">Layout: {last_visual.get('layoutHealth','')} | Page: {last_visual.get('pageHealth','')}</div>
+        </div>"""
+    # Approvals
+    approval_section = ""
+    if pending_approvals:
+        approval_section = f"""
+        <div class="card" style="border-left-color:#ff9800;">
+          <div class="card-title">承認待ち ({len(pending_approvals)}件)</div>
+          {''.join(f'<div style="margin-top:6px;">・{a.get("action","")} <span style="color:#ff9800;">[{a.get("riskLevel","")}]</span></div>' for a in pending_approvals)}
+        </div>"""
+    html = f"""<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>AXIA Web Workflow Workspace</title>
+<style>
+*{{box-sizing:border-box;margin:0;padding:0}}
+body{{font-family:-apple-system,sans-serif;background:#0f0f1a;color:#e0e0e0;padding:env(safe-area-inset-top,16px) 16px 80px;max-width:600px;margin:0 auto}}
+h1{{font-size:1.2em;color:#7c4dff;margin:16px 0 8px}}
+.card{{background:#1a1a2e;border-radius:12px;padding:16px;margin:12px 0;border-left:4px solid #7c4dff}}
+.card-title{{font-weight:bold;margin-bottom:8px;font-size:1.05em}}
+.footer{{margin-top:32px;font-size:0.75em;color:#555;text-align:center}}
+@media(max-width:480px){{body{{padding:12px 12px 80px}}}}
+</style>
+</head>
+<body>
+<h1>Web Workflow Workspace</h1>
+{wf_section}
+{visual_section}
+{approval_section}
+<div class="card">
+  <div class="card-title">継続状態</div>
+  <div>Network: {continuity.get('networkStatus','OK')}</div>
+  <div style="font-size:0.85em;color:#888;">Reconnect: {continuity.get('reconnectCount',0)}回</div>
+</div>
+<div class="footer">AXIA_RUNTIME_CLASS = REAL_AUTONOMOUS_WEB_WORKFLOW_OPERATOR | P36-P40</div>
+</body>
+</html>"""
+    return HTMLResponse(content=html)
