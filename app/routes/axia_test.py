@@ -9483,3 +9483,506 @@ async def p80_holding_dashboard():
 </body>
 </html>"""
         return HTMLResponse(content=html)
+
+
+# ============================================================
+# AXIA P81-P85: Autonomous Continuous Improvement Runtime
+# AXIA_RUNTIME_CLASS = AUTONOMOUS_CONTINUOUS_IMPROVEMENT_OPERATOR
+# autoModifyAllowed = false
+# ============================================================
+
+import uuid as _uuid_p81
+
+_P81_VERSION = "P81"
+_P82_VERSION = "P82"
+_P83_VERSION = "P83"
+_P84_VERSION = "P84"
+_P85_VERSION = "P85"
+_P81_RUNTIME_CLASS = "AUTONOMOUS_CONTINUOUS_IMPROVEMENT_OPERATOR"
+
+# ── P81 State ──────────────────────────────────────────────
+_p81_monitoring_state = {
+    "monitoringVersion": "P81",
+    "runtimeClass": "AUTONOMOUS_CONTINUOUS_IMPROVEMENT_OPERATOR",
+    "autoModifyAllowed": False,
+    "conversionTrend": "STABLE",
+    "growthTrend": "UP",
+    "supportLoad": "MEDIUM",
+    "workflowHealth": "HEALTHY",
+    "riskTrend": "LOW",
+    "retentionTrend": "STABLE",
+    "monitoringAlerts": [
+        {"alert": "CTA click rate dropped 8% this week", "severity": "MEDIUM", "area": "CTA"},
+        {"alert": "Support load increased by 15%", "severity": "LOW", "area": "Support"},
+        {"alert": "Mobile bounce rate elevated", "severity": "MEDIUM", "area": "UX"},
+    ],
+    "trendWarnings": [
+        "Conversion rate showing slight downward trend",
+        "Support load trending upward — may indicate UX friction",
+    ],
+    "attentionRequired": ["CTA optimization", "Mobile UX review"],
+    "lastChecked": None,
+    "checkCount": 0,
+}
+
+# ── P82 State ──────────────────────────────────────────────
+_p82_loop_state = {
+    "loopVersion": "P82",
+    "runtimeClass": "AUTONOMOUS_CONTINUOUS_IMPROVEMENT_OPERATOR",
+    "autoModifyAllowed": False,
+    "loopStatus": "WAITING_APPROVAL",
+    "detectedIssue": "CTA click rate dropped — possible visibility or copy issue",
+    "proposedFix": "Move CTA above fold, update copy to action-oriented language",
+    "estimatedImpact": "+12% CVR",
+    "approvalRequired": True,
+    "verifyItems": [
+        "Confirm CTA is above fold on mobile",
+        "A/B test new copy vs current",
+        "Monitor CVR for 7 days post-change",
+    ],
+    "prDraft": {
+        "title": "fix: CTA visibility and copy improvement",
+        "description": "Move CTA above fold. Update copy. Estimated +12% CVR.",
+        "isDraft": True,
+        "autoPublishAllowed": False,
+    },
+    "loopHistory": [],
+    "lastRun": None,
+}
+
+# ── P83 State ──────────────────────────────────────────────
+_p83_priority_state = {
+    "priorityVersion": "P83",
+    "runtimeClass": "AUTONOMOUS_CONTINUOUS_IMPROVEMENT_OPERATOR",
+    "autoModifyAllowed": False,
+    "priorityItems": [
+        {
+            "rank": 1,
+            "improvement": "CTA固定表示",
+            "impact": 0.9,
+            "risk": 0.1,
+            "implementationCost": 0.2,
+            "growthPotential": 0.85,
+            "urgency": "HIGH",
+            "priorityScore": 0.92,
+        },
+        {
+            "rank": 2,
+            "improvement": "フォーム短縮（3項目以下）",
+            "impact": 0.8,
+            "risk": 0.15,
+            "implementationCost": 0.3,
+            "growthPotential": 0.75,
+            "urgency": "HIGH",
+            "priorityScore": 0.85,
+        },
+        {
+            "rank": 3,
+            "improvement": "比較表追加",
+            "impact": 0.7,
+            "risk": 0.2,
+            "implementationCost": 0.35,
+            "growthPotential": 0.65,
+            "urgency": "MEDIUM",
+            "priorityScore": 0.72,
+        },
+        {
+            "rank": 4,
+            "improvement": "モバイルCTA最適化",
+            "impact": 0.65,
+            "risk": 0.1,
+            "implementationCost": 0.25,
+            "growthPotential": 0.6,
+            "urgency": "MEDIUM",
+            "priorityScore": 0.68,
+        },
+        {
+            "rank": 5,
+            "improvement": "社会的証明追加",
+            "impact": 0.6,
+            "risk": 0.05,
+            "implementationCost": 0.2,
+            "growthPotential": 0.55,
+            "urgency": "LOW",
+            "priorityScore": 0.62,
+        },
+    ],
+    "quickWins": ["CTA固定表示", "フォーム短縮（3項目以下）"],
+    "recommendedOrder": ["CTA固定表示", "フォーム短縮", "比較表追加", "モバイルCTA最適化", "社会的証明追加"],
+    "lastAnalyzed": None,
+}
+
+# ── P84 State ──────────────────────────────────────────────
+_p84_impact_state = {
+    "impactVersion": "P84",
+    "runtimeClass": "AUTONOMOUS_CONTINUOUS_IMPROVEMENT_OPERATOR",
+    "autoModifyAllowed": False,
+    "improvementHistory": [
+        {
+            "changeId": "chg_001",
+            "improvement": "CTA固定表示",
+            "beforeKPI": {"cvr": 0.032, "uxScore": 0.71, "bounceRate": 0.45},
+            "afterKPI": {"cvr": 0.041, "uxScore": 0.78, "bounceRate": 0.38},
+            "expectedImpact": "+10% CVR",
+            "actualImpact": "+28% CVR",
+            "successRate": 1.0,
+            "status": "SUCCESS",
+            "appliedAt": "2026-04-01",
+        },
+        {
+            "changeId": "chg_002",
+            "improvement": "フォーム短縮",
+            "beforeKPI": {"cvr": 0.041, "uxScore": 0.78, "formCompletionRate": 0.52},
+            "afterKPI": {"cvr": 0.048, "uxScore": 0.83, "formCompletionRate": 0.71},
+            "expectedImpact": "+8% CVR",
+            "actualImpact": "+17% CVR",
+            "successRate": 1.0,
+            "status": "SUCCESS",
+            "appliedAt": "2026-04-15",
+        },
+    ],
+    "successfulPatterns": ["CTA固定表示", "フォーム短縮"],
+    "impactSummary": "2 improvements tracked. Average actual impact exceeded expected by 1.8x.",
+    "overallSuccessRate": 1.0,
+    "lastTracked": None,
+}
+
+# ── P81 Endpoints ──────────────────────────────────────────
+
+@router.get("/axia-monitoring")
+def p81_get_monitoring():
+    return {
+        "monitoringVersion": _p81_monitoring_state["monitoringVersion"],
+        "runtimeClass": _p81_monitoring_state["runtimeClass"],
+        "autoModifyAllowed": _p81_monitoring_state["autoModifyAllowed"],
+        "conversionTrend": _p81_monitoring_state["conversionTrend"],
+        "growthTrend": _p81_monitoring_state["growthTrend"],
+        "supportLoad": _p81_monitoring_state["supportLoad"],
+        "workflowHealth": _p81_monitoring_state["workflowHealth"],
+        "riskTrend": _p81_monitoring_state["riskTrend"],
+        "retentionTrend": _p81_monitoring_state["retentionTrend"],
+        "monitoringAlerts": _p81_monitoring_state["monitoringAlerts"],
+        "trendWarnings": _p81_monitoring_state["trendWarnings"],
+        "attentionRequired": _p81_monitoring_state["attentionRequired"],
+        "alertCount": len(_p81_monitoring_state["monitoringAlerts"]),
+        "lastChecked": _p81_monitoring_state["lastChecked"],
+        "checkCount": _p81_monitoring_state["checkCount"],
+    }
+
+@router.post("/axia-monitoring/check")
+async def p81_run_monitoring_check(request: Request):
+    payload = await request.json()
+    now = datetime.datetime.utcnow().isoformat()
+    focus = payload.get("focus", "all")
+    _p81_monitoring_state["lastChecked"] = now
+    _p81_monitoring_state["checkCount"] += 1
+
+    # Simulate dynamic check
+    alerts = list(_p81_monitoring_state["monitoringAlerts"])
+    if focus == "conversion":
+        alerts = [a for a in alerts if a["area"] == "CTA"]
+    elif focus == "support":
+        alerts = [a for a in alerts if a["area"] == "Support"]
+
+    return {
+        "checkId": str(_uuid_p81.uuid4()),
+        "monitoringVersion": "P81",
+        "runtimeClass": "AUTONOMOUS_CONTINUOUS_IMPROVEMENT_OPERATOR",
+        "autoModifyAllowed": False,
+        "focus": focus,
+        "checkedAt": now,
+        "monitoringAlerts": alerts,
+        "trendWarnings": _p81_monitoring_state["trendWarnings"],
+        "attentionRequired": _p81_monitoring_state["attentionRequired"],
+        "conversionTrend": _p81_monitoring_state["conversionTrend"],
+        "growthTrend": _p81_monitoring_state["growthTrend"],
+        "supportLoad": _p81_monitoring_state["supportLoad"],
+        "workflowHealth": _p81_monitoring_state["workflowHealth"],
+        "riskTrend": _p81_monitoring_state["riskTrend"],
+        "retentionTrend": _p81_monitoring_state["retentionTrend"],
+        "alertCount": len(alerts),
+    }
+
+# ── P82 Endpoints ──────────────────────────────────────────
+
+@router.get("/axia-improvement-loop")
+def p82_get_improvement_loop():
+    return {
+        "loopVersion": _p82_loop_state["loopVersion"],
+        "runtimeClass": _p82_loop_state["runtimeClass"],
+        "autoModifyAllowed": _p82_loop_state["autoModifyAllowed"],
+        "loopStatus": _p82_loop_state["loopStatus"],
+        "detectedIssue": _p82_loop_state["detectedIssue"],
+        "proposedFix": _p82_loop_state["proposedFix"],
+        "estimatedImpact": _p82_loop_state["estimatedImpact"],
+        "approvalRequired": _p82_loop_state["approvalRequired"],
+        "verifyItems": _p82_loop_state["verifyItems"],
+        "prDraft": _p82_loop_state["prDraft"],
+        "loopHistoryCount": len(_p82_loop_state["loopHistory"]),
+        "lastRun": _p82_loop_state["lastRun"],
+    }
+
+@router.post("/axia-improvement-loop/run")
+async def p82_run_improvement_loop(request: Request):
+    payload = await request.json()
+    now = datetime.datetime.utcnow().isoformat()
+    issue = payload.get("issue", _p82_loop_state["detectedIssue"])
+    severity = payload.get("severity", "MEDIUM")
+
+    run_id = str(_uuid_p81.uuid4())
+    proposed_fix = "Move CTA above fold and update copy to action-oriented language"
+    estimated_impact = "+12% CVR"
+    verify_items = [
+        "Confirm CTA is above fold on mobile",
+        "A/B test new copy vs current",
+        "Monitor CVR for 7 days post-change",
+    ]
+    pr_draft = {
+        "title": "fix: CTA visibility and copy improvement",
+        "description": "Move CTA above fold. Update copy. Estimated +12% CVR.",
+        "isDraft": True,
+        "autoPublishAllowed": False,
+    }
+
+    loop_entry = {
+        "runId": run_id,
+        "detectedIssue": issue,
+        "severity": severity,
+        "proposedFix": proposed_fix,
+        "estimatedImpact": estimated_impact,
+        "approvalRequired": True,
+        "loopStatus": "WAITING_APPROVAL",
+        "ranAt": now,
+    }
+    _p82_loop_state["loopHistory"].append(loop_entry)
+    _p82_loop_state["lastRun"] = now
+    _p82_loop_state["loopStatus"] = "WAITING_APPROVAL"
+    _p82_loop_state["detectedIssue"] = issue
+    _p82_loop_state["proposedFix"] = proposed_fix
+    _p82_loop_state["estimatedImpact"] = estimated_impact
+
+    return {
+        "runId": run_id,
+        "loopVersion": "P82",
+        "runtimeClass": "AUTONOMOUS_CONTINUOUS_IMPROVEMENT_OPERATOR",
+        "autoModifyAllowed": False,
+        "detectedIssue": issue,
+        "severity": severity,
+        "proposedFix": proposed_fix,
+        "estimatedImpact": estimated_impact,
+        "approvalRequired": True,
+        "loopStatus": "WAITING_APPROVAL",
+        "verifyItems": verify_items,
+        "prDraft": pr_draft,
+        "ranAt": now,
+    }
+
+# ── P83 Endpoints ──────────────────────────────────────────
+
+@router.get("/axia-priority")
+def p83_get_priority():
+    return {
+        "priorityVersion": _p83_priority_state["priorityVersion"],
+        "runtimeClass": _p83_priority_state["runtimeClass"],
+        "autoModifyAllowed": _p83_priority_state["autoModifyAllowed"],
+        "priorityItems": _p83_priority_state["priorityItems"],
+        "quickWins": _p83_priority_state["quickWins"],
+        "recommendedOrder": _p83_priority_state["recommendedOrder"],
+        "topPriority": _p83_priority_state["priorityItems"][0] if _p83_priority_state["priorityItems"] else None,
+        "lastAnalyzed": _p83_priority_state["lastAnalyzed"],
+    }
+
+@router.post("/axia-priority/analyze")
+async def p83_analyze_priority(request: Request):
+    payload = await request.json()
+    now = datetime.datetime.utcnow().isoformat()
+    focus = payload.get("focus", "all")
+    _p83_priority_state["lastAnalyzed"] = now
+
+    items = _p83_priority_state["priorityItems"]
+    if focus == "quick":
+        items = [i for i in items if i["urgency"] == "HIGH"]
+
+    return {
+        "analysisId": str(_uuid_p81.uuid4()),
+        "priorityVersion": "P83",
+        "runtimeClass": "AUTONOMOUS_CONTINUOUS_IMPROVEMENT_OPERATOR",
+        "autoModifyAllowed": False,
+        "focus": focus,
+        "analyzedAt": now,
+        "priorityItems": items,
+        "quickWins": _p83_priority_state["quickWins"],
+        "recommendedOrder": _p83_priority_state["recommendedOrder"],
+        "topPriority": items[0] if items else None,
+        "totalItems": len(items),
+    }
+
+# ── P84 Endpoints ──────────────────────────────────────────
+
+@router.get("/axia-impact")
+def p84_get_impact():
+    return {
+        "impactVersion": _p84_impact_state["impactVersion"],
+        "runtimeClass": _p84_impact_state["runtimeClass"],
+        "autoModifyAllowed": _p84_impact_state["autoModifyAllowed"],
+        "improvementHistory": _p84_impact_state["improvementHistory"],
+        "successfulPatterns": _p84_impact_state["successfulPatterns"],
+        "impactSummary": _p84_impact_state["impactSummary"],
+        "overallSuccessRate": _p84_impact_state["overallSuccessRate"],
+        "totalTracked": len(_p84_impact_state["improvementHistory"]),
+        "lastTracked": _p84_impact_state["lastTracked"],
+    }
+
+@router.post("/axia-impact/track")
+async def p84_track_impact(request: Request):
+    payload = await request.json()
+    now = datetime.datetime.utcnow().isoformat()
+    improvement = payload.get("improvement", "Unknown improvement")
+    before_kpi = payload.get("beforeKPI", {"cvr": 0.03, "uxScore": 0.70})
+    after_kpi = payload.get("afterKPI", {"cvr": 0.038, "uxScore": 0.76})
+    expected_impact = payload.get("expectedImpact", "+10% CVR")
+
+    # Calculate actual impact
+    before_cvr = before_kpi.get("cvr", 0.03)
+    after_cvr = after_kpi.get("cvr", 0.038)
+    if before_cvr > 0:
+        actual_pct = round((after_cvr - before_cvr) / before_cvr * 100, 1)
+        actual_impact = f"+{actual_pct}% CVR" if actual_pct >= 0 else f"{actual_pct}% CVR"
+    else:
+        actual_impact = "N/A"
+
+    success = after_cvr >= before_cvr
+    change_id = f"chg_{str(_uuid_p81.uuid4())[:6]}"
+
+    entry = {
+        "changeId": change_id,
+        "improvement": improvement,
+        "beforeKPI": before_kpi,
+        "afterKPI": after_kpi,
+        "expectedImpact": expected_impact,
+        "actualImpact": actual_impact,
+        "successRate": 1.0 if success else 0.0,
+        "status": "SUCCESS" if success else "NEEDS_REVIEW",
+        "appliedAt": now,
+    }
+    _p84_impact_state["improvementHistory"].append(entry)
+    if success and improvement not in _p84_impact_state["successfulPatterns"]:
+        _p84_impact_state["successfulPatterns"].append(improvement)
+    _p84_impact_state["lastTracked"] = now
+
+    total = len(_p84_impact_state["improvementHistory"])
+    successes = sum(1 for h in _p84_impact_state["improvementHistory"] if h["status"] == "SUCCESS")
+    _p84_impact_state["overallSuccessRate"] = round(successes / total, 2) if total > 0 else 0.0
+    _p84_impact_state["impactSummary"] = (
+        f"{total} improvements tracked. "
+        f"Success rate: {round(_p84_impact_state['overallSuccessRate'] * 100)}%."
+    )
+
+    return {
+        "trackId": str(_uuid_p81.uuid4()),
+        "impactVersion": "P84",
+        "runtimeClass": "AUTONOMOUS_CONTINUOUS_IMPROVEMENT_OPERATOR",
+        "autoModifyAllowed": False,
+        "changeId": change_id,
+        "improvement": improvement,
+        "beforeKPI": before_kpi,
+        "afterKPI": after_kpi,
+        "expectedImpact": expected_impact,
+        "actualImpact": actual_impact,
+        "successRate": entry["successRate"],
+        "status": entry["status"],
+        "successfulPatterns": _p84_impact_state["successfulPatterns"],
+        "impactSummary": _p84_impact_state["impactSummary"],
+        "overallSuccessRate": _p84_impact_state["overallSuccessRate"],
+        "trackedAt": now,
+    }
+
+# ── P85 Dashboard ──────────────────────────────────────────
+
+@router.get("/axia-improvement")
+def p85_improvement_dashboard():
+    alerts = _p81_monitoring_state["monitoringAlerts"]
+    top_priority = _p83_priority_state["priorityItems"][0] if _p83_priority_state["priorityItems"] else {}
+    loop_status = _p82_loop_state["loopStatus"]
+    patterns = _p84_impact_state["successfulPatterns"]
+    estimated_impact = _p82_loop_state["estimatedImpact"]
+
+    html = f"""<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>AXIA Continuous Improvement Dashboard</title>
+<style>
+body{{font-family:Arial,sans-serif;background:#0a0a0a;color:#e0e0e0;margin:0;padding:20px}}
+h1{{color:#00d4ff;font-size:1.6em;margin-bottom:4px}}
+.subtitle{{color:#888;font-size:0.85em;margin-bottom:24px}}
+.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin-bottom:24px}}
+.card{{background:#1a1a2e;border:1px solid #333;border-radius:10px;padding:18px}}
+.card-title{{color:#888;font-size:0.78em;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px}}
+.card-value{{color:#00d4ff;font-size:2em;font-weight:bold}}
+.card-sub{{color:#aaa;font-size:0.82em;margin-top:6px}}
+.section{{background:#1a1a2e;border:1px solid #333;border-radius:10px;padding:18px;margin-bottom:16px}}
+.section h3{{color:#00d4ff;margin:0 0 12px 0;font-size:1em}}
+.item{{background:#0d0d1a;border-radius:6px;padding:10px 14px;margin-bottom:8px;font-size:0.88em}}
+.badge{{display:inline-block;padding:2px 10px;border-radius:12px;font-size:0.75em;font-weight:bold}}
+.badge-warn{{background:#ff6b35;color:#fff}}
+.badge-ok{{background:#00c851;color:#fff}}
+.badge-wait{{background:#ffbb33;color:#000}}
+.footer{{color:#444;font-size:0.75em;text-align:center;margin-top:24px}}
+</style>
+</head>
+<body>
+<h1>AXIA Continuous Improvement Dashboard</h1>
+<div class="subtitle">P81-P85 | AUTONOMOUS_CONTINUOUS_IMPROVEMENT_OPERATOR | autoModifyAllowed = false</div>
+
+<div class="grid">
+  <div class="card">
+    <div class="card-title">Current Alerts</div>
+    <div class="card-value">{len(alerts)}</div>
+    <div class="card-sub">Active monitoring alerts</div>
+  </div>
+  <div class="card">
+    <div class="card-title">Top Improvement</div>
+    <div class="card-value" style="font-size:1.2em">{top_priority.get('improvement', 'N/A')}</div>
+    <div class="card-sub">Priority #1 — {top_priority.get('urgency', 'N/A')}</div>
+  </div>
+  <div class="card">
+    <div class="card-title">Expected Impact</div>
+    <div class="card-value" style="font-size:1.4em;color:#00c851">{estimated_impact}</div>
+    <div class="card-sub">From current top proposal</div>
+  </div>
+  <div class="card">
+    <div class="card-title">Improvement Status</div>
+    <div class="card-value" style="font-size:1em">{loop_status}</div>
+    <div class="card-sub">Approval gate active</div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Monitoring Alerts</h3>
+  {"".join(f'<div class="item"><span class="badge badge-warn">{a["severity"]}</span> {a["alert"]} <span style="color:#888;font-size:0.85em">({a["area"]})</span></div>' for a in alerts)}
+</div>
+
+<div class="section">
+  <h3>Improvement Priority (Top 3)</h3>
+  {"".join(f'<div class="item">#{item["rank"]} {item["improvement"]} — Score: {item["priorityScore"]} <span class="badge badge-warn">{item["urgency"]}</span></div>' for item in _p83_priority_state["priorityItems"][:3])}
+</div>
+
+<div class="section">
+  <h3>Successful Patterns</h3>
+  {"".join(f'<div class="item"><span class="badge badge-ok">SUCCESS</span> {p}</div>' for p in patterns) if patterns else '<div class="item">No patterns recorded yet</div>'}
+</div>
+
+<div class="section">
+  <h3>Impact Tracking Summary</h3>
+  <div class="item">{_p84_impact_state["impactSummary"]}</div>
+  <div class="item">Overall Success Rate: {round(_p84_impact_state["overallSuccessRate"] * 100)}%</div>
+</div>
+
+<div class="footer">
+  AXIA_RUNTIME_CLASS = AUTONOMOUS_CONTINUOUS_IMPROVEMENT_OPERATOR | P81-P85 | autoModifyAllowed = false
+</div>
+</body>
+</html>"""
+    from fastapi.responses import HTMLResponse
+    return HTMLResponse(content=html)
