@@ -215,10 +215,10 @@ async def axia_status():
 
     <div class="section-title">Endpoints</div>
     <div class="links">
-      <a class="link-btn" href="/api/health">&#x2665; Health API</a>
-      <a class="link-btn" href="/api/health/db">&#x1f5c4; DB Health</a>
-      <a class="link-btn" href="/api/axia-test">&#x26a1; AXIA Test</a>
-      <a class="link-btn" href="/api/axia-dashboard">&#x1f4ca; Dashboard</a>
+      <a class="link-btn" href="/api/health">✅ サービス状態を確認</a>
+      <a class="link-btn" href="/api/health/db">🗄️ データベース確認</a>
+      <a class="link-btn" href="/api/axia-test">⚡ AXIA動作テスト</a>
+      <a class="link-btn" href="/api/axia-dashboard">📊 ダッシュボードを開く</a>
     </div>
 
     <div class="footer">AXIA_RUNTIME_CLASS = REAL_USER_UI_OPERATOR</div>
